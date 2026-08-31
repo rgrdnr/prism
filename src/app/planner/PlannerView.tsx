@@ -23,6 +23,7 @@ import { PageLoader } from '@/components/ui/spinner';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { AddEventModal } from '@/components/modals/AddEventModal';
 import { MealModal } from '@/app/meals/MealsView';
+import { WeekItemCard } from '@/components/calendar/cells/WeekItemCard';
 import { useRecipes } from '@/lib/hooks/useRecipes';
 import { useTimeFormat } from '@/components/providers';
 import { formatDisplayTimeRange } from '@/lib/utils/timeFormat';
@@ -30,6 +31,10 @@ import { cn } from '@/lib/utils';
 import { DAYS_OF_WEEK_MON_FIRST, DAY_LABELS } from '@/lib/constants/days';
 import { MiniMonth } from './MiniMonth';
 import { usePlannerViewData } from './usePlannerViewData';
+
+// Matches OverlayItemsCell's MEAL_FALLBACK_COLOR so a meal reads the same
+// color here as it does on the Calendar page when no one's cooking it yet.
+const MEAL_FALLBACK_COLOR = '#10b981';
 import type { CalendarEvent } from '@/types/calendar';
 
 export function PlannerView() {
@@ -174,19 +179,20 @@ export function PlannerView() {
                         ) : (
                           <>
                             {bucket.meals.map((meal) => (
-                              <div
-                                key={meal.id}
-                                className="group flex items-center justify-between gap-1 text-sm"
-                              >
-                                <button
+                              <div key={meal.id} className="group relative">
+                                <WeekItemCard
+                                  variant="meal"
+                                  size="sm"
+                                  stripeColor={meal.cookedBy?.color || meal.createdBy?.color || MEAL_FALLBACK_COLOR}
+                                  title={meal.name}
+                                  timeLabel={meal.mealType}
+                                  subtitle={meal.cookedBy?.name ? `Cooked by ${meal.cookedBy.name}` : undefined}
+                                  muted={Boolean(meal.cookedAt)}
                                   onClick={() => setEditingMeal(meal)}
-                                  className="flex-1 min-w-0 text-left truncate hover:underline"
-                                >
-                                  {meal.name}
-                                </button>
+                                />
                                 <button
                                   onClick={() => deleteMeal(meal.id)}
-                                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive shrink-0"
+                                  className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive bg-card/80 rounded p-0.5"
                                   aria-label="Delete meal"
                                 >
                                   <Trash2 className="h-3 w-3" />
