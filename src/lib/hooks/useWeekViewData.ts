@@ -87,11 +87,20 @@ export function useWeekViewData({
     () => format(normalizedStart, 'yyyy-MM-dd'),
     [normalizedStart],
   );
+  const weekEndString = useMemo(
+    () => format(addDays(normalizedStart, 6), 'yyyy-MM-dd'),
+    [normalizedStart],
+  );
 
   const { events, loading: eventsLoading, error: eventsError, refresh: refreshEvents } =
     useCalendarEvents({ daysToShow: 14 });
+  // Query by absolute date range (meals.date), not the week-relative weekOf
+  // key: a caller's weekStartsOn can differ from the household's global
+  // "week starts on" preference the meal was originally saved under (e.g.
+  // the Weekly Planner always lays out Monday-Sunday), and a weekOf lookup
+  // silently returns nothing when the boundaries don't match.
   const { meals, loading: mealsLoading, error: mealsError, refresh: refreshMeals } =
-    useMeals({ weekOf: weekOfString });
+    useMeals({ from: weekOfString, to: weekEndString });
   const { chores, loading: choresLoading, error: choresError, refresh: refreshChores } =
     useChores({ enabled: true });
   const { tasks, loading: tasksLoading, error: tasksError, refresh: refreshTasks } =

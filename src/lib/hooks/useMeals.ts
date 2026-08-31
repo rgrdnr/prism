@@ -9,6 +9,16 @@ import type { Meal } from '@/types';
 
 interface UseMealsOptions {
   weekOf?: string;
+  /**
+   * Preferred over weekOf: an absolute [from, to] date range. weekOf is a
+   * week-relative key that only matches meals saved under the same "week
+   * starts on" boundary — a caller whose boundary differs (e.g. a view that
+   * always starts weeks on Monday regardless of the household's display
+   * preference) silently gets zero meals back. from/to query meals.date,
+   * the stable identity date-of-week changes can't orphan.
+   */
+  from?: string;
+  to?: string;
   refreshInterval?: number;
   enabled?: boolean;
 }
@@ -59,10 +69,15 @@ function transformMeals(json: unknown): Meal[] {
 }
 
 export function useMeals(options: UseMealsOptions = {}) {
-  const { weekOf, refreshInterval = 5 * 60 * 1000, enabled } = options;
+  const { weekOf, from, to, refreshInterval = 5 * 60 * 1000, enabled } = options;
 
   const params = new URLSearchParams();
-  if (weekOf) params.set('weekOf', weekOf);
+  if (from && to) {
+    params.set('from', from);
+    params.set('to', to);
+  } else if (weekOf) {
+    params.set('weekOf', weekOf);
+  }
 
   const { data: meals, loading, error, refresh } = useFetch<Meal[]>({
     url: `/api/meals?${params.toString()}`,
