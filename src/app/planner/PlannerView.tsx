@@ -60,7 +60,10 @@ export function PlannerView() {
     showAddEvent,
     setShowAddEvent,
     activeDay,
+    editingMeal,
+    setEditingMeal,
     addMeal,
+    editMeal,
     deleteMeal,
     deleteEvent,
     openAddMeal,
@@ -175,7 +178,12 @@ export function PlannerView() {
                                 key={meal.id}
                                 className="group flex items-center justify-between gap-1 text-sm"
                               >
-                                <span className="truncate">{meal.name}</span>
+                                <button
+                                  onClick={() => setEditingMeal(meal)}
+                                  className="flex-1 min-w-0 text-left truncate hover:underline"
+                                >
+                                  {meal.name}
+                                </button>
                                 <button
                                   onClick={() => deleteMeal(meal.id)}
                                   className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive shrink-0"
@@ -340,6 +348,17 @@ export function PlannerView() {
           recipes={recipes}
           onClose={() => setShowAddMeal(false)}
           onSave={(meal) => { addMeal(meal); setShowAddMeal(false); }}
+        />
+      )}
+
+      {editingMeal && (
+        <MealModal
+          weekOf={weekOfString}
+          meal={editingMeal}
+          dayOptions={DAYS_OF_WEEK_MON_FIRST}
+          recipes={recipes}
+          onClose={() => setEditingMeal(null)}
+          onSave={(updates) => { editMeal(editingMeal.id, updates); setEditingMeal(null); }}
         />
       )}
 

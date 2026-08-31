@@ -76,6 +76,7 @@ export function usePlannerViewData() {
   const [showAddMeal, setShowAddMeal] = useState(false);
   const [showAddEvent, setShowAddEvent] = useState(false);
   const [activeDay, setActiveDay] = useState<Date | null>(null);
+  const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
 
   const openAddMeal = useCallback(async (day: Date) => {
     const user = await requireAuth('Add Meal', 'Please log in to add a meal');
@@ -110,6 +111,19 @@ export function usePlannerViewData() {
       toast({ title: err instanceof Error ? err.message : 'Failed to add meal', variant: 'destructive' });
     }
   }, [requireAuth, refreshDays]);
+
+  const editMeal = useCallback(async (mealId: string, updates: Partial<Meal>) => {
+    try {
+      await fetch(`/api/meals/${mealId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      await refreshDays();
+    } catch (err) {
+      console.error('Failed to edit meal:', err);
+    }
+  }, [refreshDays]);
 
   const deleteMeal = useCallback(async (mealId: string) => {
     if (!await confirm('Delete this meal?', 'This will remove the meal from the planner.')) return;
@@ -162,9 +176,12 @@ export function usePlannerViewData() {
     setShowAddEvent,
     activeDay,
     setActiveDay,
+    editingMeal,
+    setEditingMeal,
     openAddMeal,
     openAddEvent,
     addMeal,
+    editMeal,
     deleteMeal,
     deleteEvent,
     confirmDialogProps,
