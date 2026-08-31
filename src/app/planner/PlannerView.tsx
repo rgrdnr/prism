@@ -28,14 +28,22 @@ import { WeekItemCard } from '@/components/calendar/cells/WeekItemCard';
 import { useRecipes } from '@/lib/hooks/useRecipes';
 import { useTimeFormat } from '@/components/providers';
 import { formatDisplayTimeRange, isCalendarEventPast } from '@/lib/utils/timeFormat';
+import { contrastText } from '@/lib/utils/color';
 import { cn } from '@/lib/utils';
-import { DAYS_OF_WEEK_MON_FIRST, DAY_LABELS } from '@/lib/constants/days';
+import { DAYS_OF_WEEK, DAYS_OF_WEEK_MON_FIRST, DAY_LABELS } from '@/lib/constants/days';
 import { MiniMonth } from './MiniMonth';
 import { usePlannerViewData } from './usePlannerViewData';
 
 // Matches OverlayItemsCell's MEAL_FALLBACK_COLOR so a meal reads the same
 // color here as it does on the Calendar page when no one's cooking it yet.
 const MEAL_FALLBACK_COLOR = '#10b981';
+
+// Literal class strings (not built dynamically) so Tailwind's JIT picks them up.
+const DAY_GRID_COLS: Record<4 | 5 | 7, string> = {
+  4: 'lg:grid-cols-4',
+  5: 'lg:grid-cols-5',
+  7: 'lg:grid-cols-7',
+};
 import type { CalendarEvent } from '@/types/calendar';
 
 export function PlannerView() {
@@ -43,6 +51,9 @@ export function PlannerView() {
     today,
     currentWeek,
     weekOfString,
+    goalsWeekDates,
+    daysToShow,
+    setDaysToShow,
     goToPreviousWeek,
     goToNextWeek,
     goToThisWeek,
@@ -53,6 +64,10 @@ export function PlannerView() {
     showAllEvents,
     setShowAllEvents,
     toggleEventHighlight,
+    calendarGroups,
+    selectedCalendarIds,
+    toggleCalendar,
+    filterEvents,
     note,
     noteSaving,
     saveNote,
@@ -115,7 +130,7 @@ export function PlannerView() {
             <ChevronLeft className="h-5 w-5" />
           </Button>
           <span className="text-sm font-semibold min-w-[220px] text-center">
-            {format(currentWeek, 'MMM d')} – {format(days[6]?.date ?? currentWeek, 'MMM d, yyyy')}
+            {format(days[0]?.date ?? currentWeek, 'MMM d')} – {format(days[days.length - 1]?.date ?? currentWeek, 'MMM d, yyyy')}
           </span>
           <Button variant="ghost" size="icon" onClick={goToNextWeek} aria-label="Next week" className="h-8 w-8">
             <ChevronRight className="h-5 w-5" />
@@ -125,7 +140,51 @@ export function PlannerView() {
               This week
             </Button>
           )}
+          <div className="flex items-center gap-1 ml-2 pl-2 border-l border-border">
+            {([4, 5, 7] as const).map((count) => (
+              <Button
+                key={count}
+                variant={daysToShow === count ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setDaysToShow(count)}
+                className="h-7 w-9 text-xs px-0"
+                title={count === 7 ? 'Full week (Mon–Sun)' : `Next ${count} days, starting today`}
+              >
+                {count}d
+              </Button>
+            ))}
+          </div>
         </div>
+
+        {calendarGroups.length > 0 && (
+          <FilterBar>
+            <span className="text-sm text-muted-foreground shrink-0">Show:</span>
+            <Button
+              variant={selectedCalendarIds.has('all') ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => toggleCalendar('all')}
+              className="h-7 text-xs"
+            >
+              All
+            </Button>
+            {calendarGroups.map((group) => {
+              const isSelected = selectedCalendarIds.has(group.id) || selectedCalendarIds.has('all');
+              return (
+                <Button
+                  key={group.id}
+                  variant={isSelected ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => toggleCalendar(group.id)}
+                  className={cn('h-7 text-xs gap-1.5', isSelected && 'border-transparent')}
+                  style={isSelected ? { backgroundColor: group.color, color: contrastText(group.color) } : undefined}
+                >
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: isSelected ? 'rgba(255,255,255,0.55)' : group.color }} />
+                  {group.name}
+                </Button>
+              );
+            })}
+          </FilterBar>
+        )}
 
         <FilterBar>
           <span className="text-sm text-muted-foreground">
@@ -149,13 +208,12 @@ export function PlannerView() {
             <PageLoader />
           ) : (
             <div className="max-w-[1600px] mx-auto space-y-6">
-              {/* 7-day grid, Monday -> Sunday, matching the paper layout */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2">
-                {days.map((bucket, i) => {
-                  const dayKey = DAYS_OF_WEEK_MON_FIRST[i] ?? 'monday';
+              {/* Day grid: full Monday-Sunday week at 7, a rolling window starting today at 4/5 */}
+              <div className={cn('grid grid-cols-1 sm:grid-cols-2 gap-2', DAY_GRID_COLS[daysToShow])}>
+                {days.map((bucket) => {
                   const isToday = isSameDay(bucket.date, today);
                   const isPastDay = isBefore(bucket.date, startOfDay(today)) && !isToday;
-                  const dayEventsAll = [...bucket.allDayEvents, ...bucket.timedEvents];
+                  const dayEventsAll = filterEvents([...bucket.allDayEvents, ...bucket.timedEvents]);
                   const dayEvents = showAllEvents ? dayEventsAll : dayEventsAll.filter((e) => e.showOnPlanner);
                   return (
                     <div
@@ -168,7 +226,7 @@ export function PlannerView() {
                     >
                       <div className="px-2 py-1.5 border-b border-border text-center">
                         <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          {DAY_LABELS[dayKey]}
+                          {DAY_LABELS[bucket.dayOfWeek]}
                         </div>
                         <div className="text-sm font-bold">{format(bucket.date, 'MMM d')}</div>
                       </div>
@@ -300,8 +358,8 @@ export function PlannerView() {
                       {habits.map((habit) => (
                         <tr key={habit.id} className="border-t border-border/60 group">
                           <td className="py-1 pr-2">{habit.label}</td>
-                          {days.map((bucket) => {
-                            const dateStr = format(bucket.date, 'yyyy-MM-dd');
+                          {goalsWeekDates.map((date) => {
+                            const dateStr = format(date, 'yyyy-MM-dd');
                             return (
                               <td key={dateStr} className="text-center py-1">
                                 <Checkbox
@@ -365,7 +423,7 @@ export function PlannerView() {
       {showAddMeal && activeDay && (
         <MealModal
           weekOf={weekOfString}
-          defaultDay={DAYS_OF_WEEK_MON_FIRST[days.findIndex((d) => isSameDay(d.date, activeDay))] ?? 'monday'}
+          defaultDay={activeDay ? DAYS_OF_WEEK[activeDay.getDay()] : 'monday'}
           dayOptions={DAYS_OF_WEEK_MON_FIRST}
           recipes={recipes}
           onClose={() => setShowAddMeal(false)}

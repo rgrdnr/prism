@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { addDays, format, startOfWeek } from 'date-fns';
+import { addDays, format, startOfDay, startOfWeek } from 'date-fns';
 import { useWeekViewData } from '@/lib/hooks/useWeekViewData';
+import { useCalendarFilter } from '@/lib/hooks/useCalendarFilter';
 import { useWeeklyPlannerNotes } from '@/lib/hooks/useWeeklyPlannerNotes';
 import { useWeeklyHabits } from '@/lib/hooks/useWeeklyHabits';
 import { useConfirmDialog } from '@/lib/hooks/useConfirmDialog';
@@ -20,28 +21,61 @@ export function usePlannerViewData() {
   const { confirm, dialogProps: confirmDialogProps } = useConfirmDialog();
 
   const today = useMemo(() => new Date(), []);
-  const defaultWeekStart = useMemo(
-    () => startOfWeek(today, { weekStartsOn: PLANNER_WEEK_STARTS_ON }),
-    [today],
-  );
-  const [currentWeek, setCurrentWeek] = useState<Date>(defaultWeekStart);
-  const weekOfString = format(currentWeek, 'yyyy-MM-dd');
-  const weekEndString = format(addDays(currentWeek, 6), 'yyyy-MM-dd');
 
-  const goToPreviousWeek = useCallback(() => setCurrentWeek((prev) => addDays(prev, -7)), []);
-  const goToNextWeek = useCallback(() => setCurrentWeek((prev) => addDays(prev, 7)), []);
-  const goToThisWeek = useCallback(() => setCurrentWeek(defaultWeekStart), [defaultWeekStart]);
-  const isCurrentWeek = weekOfString === format(defaultWeekStart, 'yyyy-MM-dd');
+  // Days-to-show is a separate axis from "which week": at 7 days the display
+  // window is the fixed Monday-Sunday week (matching the paper planner). At
+  // 4 or 5 it's a rolling window that starts on today instead of Monday, so
+  // switching down from 7 mid-week doesn't hide days already passed.
+  const [daysToShow, setDaysToShowState] = useState<4 | 5 | 7>(7);
+
+  const defaultAnchorFor = useCallback((count: 4 | 5 | 7) => (
+    count === 7 ? startOfWeek(today, { weekStartsOn: PLANNER_WEEK_STARTS_ON }) : startOfDay(today)
+  ), [today]);
+
+  const [currentWeek, setCurrentWeek] = useState<Date>(() => defaultAnchorFor(7));
+
+  const setDaysToShow = useCallback((count: 4 | 5 | 7) => {
+    setDaysToShowState(count);
+    setCurrentWeek(defaultAnchorFor(count));
+  }, [defaultAnchorFor]);
+
+  const goToPreviousWeek = useCallback(() => setCurrentWeek((prev) => addDays(prev, -daysToShow)), [daysToShow]);
+  const goToNextWeek = useCallback(() => setCurrentWeek((prev) => addDays(prev, daysToShow)), [daysToShow]);
+  const goToThisWeek = useCallback(() => setCurrentWeek(defaultAnchorFor(daysToShow)), [defaultAnchorFor, daysToShow]);
+  const isCurrentWeek = format(currentWeek, 'yyyy-MM-dd') === format(defaultAnchorFor(daysToShow), 'yyyy-MM-dd');
 
   const { days, loading: daysLoading, refresh: refreshDays } = useWeekViewData({
     weekStart: currentWeek,
     weekStartsOn: PLANNER_WEEK_STARTS_ON,
+    daysToShow,
+    alignToWeekStart: daysToShow === 7,
   });
+
+  // Goals/Notes/mini-calendars track the calendar week containing whatever's
+  // currently displayed, always Monday-anchored and always the full 7 days —
+  // independent of daysToShow, since a habit tracker for "half a week" isn't
+  // a coherent thing. This also means the Add Meal modal always has a valid
+  // full-week range to resolve any day-of-week name against.
+  const goalsWeekStart = useMemo(
+    () => startOfWeek(currentWeek, { weekStartsOn: PLANNER_WEEK_STARTS_ON }),
+    [currentWeek],
+  );
+  const weekOfString = format(goalsWeekStart, 'yyyy-MM-dd');
+  const weekEndString = format(addDays(goalsWeekStart, 6), 'yyyy-MM-dd');
+  const goalsWeekDates = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => addDays(goalsWeekStart, i)),
+    [goalsWeekStart],
+  );
 
   // Highlights-only by default: the Planner should be a clean weekly-at-a-glance
   // view, not the full calendar. "Show all" temporarily reveals every event
   // (dimmed) so the user can pick which ones to promote to highlights.
   const [showAllEvents, setShowAllEvents] = useState(false);
+
+  // Person/calendar filter, same mechanism the Calendar page uses. Applied
+  // before the highlight filter, so e.g. "only Jordan" narrows the pool that
+  // "highlights only" vs "show all" then further filters.
+  const { selectedCalendarIds, toggleCalendar, filterEvents, calendarGroups } = useCalendarFilter();
 
   const toggleEventHighlight = useCallback(async (eventId: string, showOnPlanner: boolean) => {
     const user = await requireAuth('Update Planner highlight', 'Please log in to change what shows on the Weekly Planner');
@@ -158,6 +192,9 @@ export function usePlannerViewData() {
     currentWeek,
     weekOfString,
     weekEndString,
+    goalsWeekDates,
+    daysToShow,
+    setDaysToShow,
     goToPreviousWeek,
     goToNextWeek,
     goToThisWeek,
@@ -168,6 +205,10 @@ export function usePlannerViewData() {
     showAllEvents,
     setShowAllEvents,
     toggleEventHighlight,
+    calendarGroups,
+    selectedCalendarIds,
+    toggleCalendar,
+    filterEvents,
     note,
     noteLoading,
     noteSaving,

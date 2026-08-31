@@ -34,10 +34,20 @@ export interface DayBucket {
 }
 
 interface UseWeekViewDataOptions {
-  /** Start date of the week (date-only; time is ignored) */
+  /** Start date of the window (date-only; time is ignored) */
   weekStart: Date;
-  /** First day of the week: 0 = Sunday, 1 = Monday */
+  /** First day of the week: 0 = Sunday, 1 = Monday. Ignored when alignToWeekStart is false. */
   weekStartsOn: 0 | 1;
+  /** Number of consecutive day buckets to produce, starting at the (possibly aligned) start date. Defaults to 7. */
+  daysToShow?: number;
+  /**
+   * When true (default), weekStart is normalized to the start of its
+   * calendar week via weekStartsOn before bucketing — the usual "full week"
+   * behavior every existing caller relies on. Set false for a rolling
+   * window that starts on an arbitrary date (e.g. "today") rather than a
+   * week boundary.
+   */
+  alignToWeekStart?: boolean;
 }
 
 interface UseWeekViewDataResult {
@@ -75,12 +85,15 @@ function choreNextDueOnDay(chore: Chore, day: Date): boolean {
 export function useWeekViewData({
   weekStart,
   weekStartsOn,
+  daysToShow = 7,
+  alignToWeekStart = true,
 }: UseWeekViewDataOptions): UseWeekViewDataResult {
   const { displayTimezone } = useTimeFormat();
-  // Normalize to start-of-week for stable identity
+  // Normalize to start-of-week for stable identity, unless the caller wants
+  // a rolling window that starts exactly on weekStart (e.g. "today").
   const normalizedStart = useMemo(
-    () => startOfWeek(weekStart, { weekStartsOn }),
-    [weekStart, weekStartsOn],
+    () => (alignToWeekStart ? startOfWeek(weekStart, { weekStartsOn }) : weekStart),
+    [weekStart, weekStartsOn, alignToWeekStart],
   );
 
   const weekOfString = useMemo(
@@ -88,8 +101,8 @@ export function useWeekViewData({
     [normalizedStart],
   );
   const weekEndString = useMemo(
-    () => format(addDays(normalizedStart, 6), 'yyyy-MM-dd'),
-    [normalizedStart],
+    () => format(addDays(normalizedStart, daysToShow - 1), 'yyyy-MM-dd'),
+    [normalizedStart, daysToShow],
   );
 
   const { events, loading: eventsLoading, error: eventsError, refresh: refreshEvents } =
@@ -108,7 +121,7 @@ export function useWeekViewData({
   const { data: weather } = useWeather();
 
   const days = useMemo<DayBucket[]>(() => {
-    return Array.from({ length: 7 }, (_, i) => {
+    return Array.from({ length: daysToShow }, (_, i) => {
       const date = addDays(normalizedStart, i);
       const dayOfWeek = DAYS_OF_WEEK[date.getDay()] as DayOfWeek;
 
@@ -148,7 +161,7 @@ export function useWeekViewData({
         weather: dayWeather,
       };
     });
-  }, [normalizedStart, events, meals, chores, tasks, weather, displayTimezone]);
+  }, [normalizedStart, daysToShow, events, meals, chores, tasks, weather, displayTimezone]);
 
   const loading = eventsLoading || mealsLoading || choresLoading || tasksLoading;
   const error = eventsError || mealsError || choresError || tasksError;
