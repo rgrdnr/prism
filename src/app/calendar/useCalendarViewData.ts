@@ -147,6 +147,7 @@ export function useCalendarViewData() {
       recurring: event.recurring,
       recurrenceRule: event.recurrenceRule,
       reminderMinutes: event.reminderMinutes,
+      showOnPlanner: event.showOnPlanner,
       calendarName: event.calendarName,
       calendarId: event.calendarId,
     }));

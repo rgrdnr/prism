@@ -165,6 +165,12 @@ export const events = pgTable('events', {
 
   reminderMinutes: integer('reminder_minutes'),
 
+  // Local-only curation flag (never synced to the source calendar): when true,
+  // this event is one of the "highlights" surfaced on the Weekly Planner page.
+  // Planner shows only these instead of every event on every calendar, so the
+  // page stays a clean weekly-at-a-glance view rather than the full calendar.
+  showOnPlanner: boolean('show_on_planner').default(false).notNull(),
+
   lastSynced: timestamp('last_synced'),
 
   // Set when sync finds this synced event gone from its source. Instead of
@@ -1898,6 +1904,76 @@ export const weekendVisitsRelations = relations(weekendVisits, ({ one }) => ({
   }),
   visitedByUser: one(users, {
     fields: [weekendVisits.visitedBy],
+    references: [users.id],
+  }),
+}));
+
+
+// Freeform weekly scratchpad note (shopping list ingredients, reminders, etc.)
+// shown on the Weekly Planner page. One per week, keyed by the Monday date —
+// matches meals.weekOf so both features agree on week boundaries.
+export const weeklyPlannerNotes = pgTable('weekly_planner_notes', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  weekOf: date('week_of').notNull(),
+  content: text('content').notNull().default(''),
+  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  weekOfIdx: uniqueIndex('weekly_planner_notes_week_of_idx').on(table.weekOf),
+}));
+
+export const weeklyPlannerNotesRelations = relations(weeklyPlannerNotes, ({ one }) => ({
+  updater: one(users, {
+    fields: [weeklyPlannerNotes.updatedBy],
+    references: [users.id],
+  }),
+}));
+
+// Recurring weekly goals/habits tracked with a Mon-Sun checkbox grid on the
+// Weekly Planner page (e.g. "Weekly Allowance chores", "Read 20 min"). The
+// habit definition persists across weeks; only the daily checks are dated,
+// so a habit's history survives "week starts on" preference changes the same
+// way meals.date does.
+export const weeklyHabits = pgTable('weekly_habits', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  label: varchar('label', { length: 255 }).notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+  archived: boolean('archived').notNull().default(false),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  sortOrderIdx: index('weekly_habits_sort_order_idx').on(table.sortOrder),
+}));
+
+export const weeklyHabitChecks = pgTable('weekly_habit_checks', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  habitId: uuid('habit_id').notNull().references(() => weeklyHabits.id, { onDelete: 'cascade' }),
+  date: date('date').notNull(),
+  checked: boolean('checked').notNull().default(true),
+  checkedBy: uuid('checked_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  habitDateIdx: uniqueIndex('weekly_habit_checks_habit_date_idx').on(table.habitId, table.date),
+  dateIdx: index('weekly_habit_checks_date_idx').on(table.date),
+}));
+
+export const weeklyHabitsRelations = relations(weeklyHabits, ({ one, many }) => ({
+  createdByUser: one(users, {
+    fields: [weeklyHabits.createdBy],
+    references: [users.id],
+  }),
+  checks: many(weeklyHabitChecks),
+}));
+
+export const weeklyHabitChecksRelations = relations(weeklyHabitChecks, ({ one }) => ({
+  habit: one(weeklyHabits, {
+    fields: [weeklyHabitChecks.habitId],
+    references: [weeklyHabits.id],
+  }),
+  checkedByUser: one(users, {
+    fields: [weeklyHabitChecks.checkedBy],
     references: [users.id],
   }),
 }));

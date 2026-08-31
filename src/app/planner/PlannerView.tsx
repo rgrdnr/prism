@@ -1,0 +1,384 @@
+'use client';
+
+import * as React from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { format, isSameDay } from 'date-fns';
+import { addMonths } from 'date-fns';
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Trash2,
+  Star,
+  Eye,
+  EyeOff,
+} from 'lucide-react';
+import { PageWrapper, SubpageHeader, FilterBar } from '@/components/layout';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import { PageLoader } from '@/components/ui/spinner';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { AddEventModal } from '@/components/modals/AddEventModal';
+import { MealModal } from '@/app/meals/MealsView';
+import { useRecipes } from '@/lib/hooks/useRecipes';
+import { useTimeFormat } from '@/components/providers';
+import { formatDisplayTimeRange } from '@/lib/utils/timeFormat';
+import { cn } from '@/lib/utils';
+import { DAYS_OF_WEEK_MON_FIRST, DAY_LABELS } from '@/lib/constants/days';
+import { MiniMonth } from './MiniMonth';
+import { usePlannerViewData } from './usePlannerViewData';
+import type { CalendarEvent } from '@/types/calendar';
+
+export function PlannerView() {
+  const {
+    today,
+    currentWeek,
+    weekOfString,
+    goToPreviousWeek,
+    goToNextWeek,
+    goToThisWeek,
+    isCurrentWeek,
+    days,
+    daysLoading,
+    refreshDays,
+    showAllEvents,
+    setShowAllEvents,
+    toggleEventHighlight,
+    note,
+    noteSaving,
+    saveNote,
+    habits,
+    isChecked,
+    addHabit,
+    removeHabit,
+    toggleHabitCheck,
+    showAddMeal,
+    setShowAddMeal,
+    showAddEvent,
+    setShowAddEvent,
+    activeDay,
+    addMeal,
+    deleteMeal,
+    deleteEvent,
+    openAddMeal,
+    openAddEvent,
+    confirmDialogProps,
+  } = usePlannerViewData();
+
+  const { recipes } = useRecipes({ limit: 100 });
+  const { timeFormat, displayTimezone } = useTimeFormat();
+
+  const [noteDraft, setNoteDraft] = useState('');
+  useEffect(() => setNoteDraft(note?.content || ''), [note?.content]);
+  const noteSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleNoteChange = (value: string) => {
+    setNoteDraft(value);
+    if (noteSaveTimer.current) clearTimeout(noteSaveTimer.current);
+    noteSaveTimer.current = setTimeout(() => saveNote(value), 800);
+  };
+
+  const [newHabitLabel, setNewHabitLabel] = useState('');
+  const handleAddHabit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newHabitLabel.trim()) return;
+    addHabit(newHabitLabel.trim());
+    setNewHabitLabel('');
+  };
+
+  const [eventToEdit, setEventToEdit] = useState<CalendarEvent | null>(null);
+
+  return (
+    <PageWrapper>
+      <div className="h-screen flex flex-col">
+        <SubpageHeader
+          icon={<CalendarDays className="h-5 w-5 text-primary" />}
+          title="Weekly Planner"
+        />
+
+        <div className="flex-shrink-0 flex items-center justify-center gap-2 py-2 border-b border-border bg-card/50">
+          <Button variant="ghost" size="icon" onClick={goToPreviousWeek} aria-label="Previous week" className="h-8 w-8">
+            <ChevronLeft className="h-5 w-5" />
+          </Button>
+          <span className="text-sm font-semibold min-w-[220px] text-center">
+            {format(currentWeek, 'MMM d')} – {format(days[6]?.date ?? currentWeek, 'MMM d, yyyy')}
+          </span>
+          <Button variant="ghost" size="icon" onClick={goToNextWeek} aria-label="Next week" className="h-8 w-8">
+            <ChevronRight className="h-5 w-5" />
+          </Button>
+          {!isCurrentWeek && (
+            <Button variant="link" size="sm" onClick={goToThisWeek} className="h-auto p-0 text-xs ml-1">
+              This week
+            </Button>
+          )}
+        </div>
+
+        <FilterBar>
+          <span className="text-sm text-muted-foreground">
+            {showAllEvents
+              ? 'Showing every event — star one to make it a Planner highlight.'
+              : 'Showing only starred highlights.'}
+          </span>
+          <Button
+            variant={showAllEvents ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setShowAllEvents(!showAllEvents)}
+            className="h-7 text-xs gap-1.5 ml-auto"
+          >
+            {showAllEvents ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            {showAllEvents ? 'Highlights only' : 'Show all events'}
+          </Button>
+        </FilterBar>
+
+        <div className="flex-1 overflow-y-auto p-3 md:p-4">
+          {daysLoading ? (
+            <PageLoader />
+          ) : (
+            <div className="max-w-[1600px] mx-auto space-y-6">
+              {/* 7-day grid, Monday -> Sunday, matching the paper layout */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2">
+                {days.map((bucket, i) => {
+                  const dayKey = DAYS_OF_WEEK_MON_FIRST[i] ?? 'monday';
+                  const isToday = isSameDay(bucket.date, today);
+                  const dayEventsAll = [...bucket.allDayEvents, ...bucket.timedEvents];
+                  const dayEvents = showAllEvents ? dayEventsAll : dayEventsAll.filter((e) => e.showOnPlanner);
+                  return (
+                    <div
+                      key={bucket.date.toISOString()}
+                      className={
+                        'flex flex-col rounded-lg border border-border bg-card/60 min-h-[220px] ' +
+                        (isToday ? 'ring-2 ring-primary' : '')
+                      }
+                    >
+                      <div className="px-2 py-1.5 border-b border-border text-center">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          {DAY_LABELS[dayKey]}
+                        </div>
+                        <div className="text-sm font-bold">{format(bucket.date, 'MMM d')}</div>
+                      </div>
+
+                      {/* Meal(s) for the day */}
+                      <div className="px-2 py-1.5 border-b border-border/60 space-y-1">
+                        {bucket.meals.length === 0 ? (
+                          <button
+                            onClick={() => openAddMeal(bucket.date)}
+                            className="w-full text-left text-xs text-muted-foreground italic hover:text-foreground flex items-center gap-1"
+                          >
+                            <Plus className="h-3 w-3" /> Add meal
+                          </button>
+                        ) : (
+                          <>
+                            {bucket.meals.map((meal) => (
+                              <div
+                                key={meal.id}
+                                className="group flex items-center justify-between gap-1 text-sm"
+                              >
+                                <span className="truncate">{meal.name}</span>
+                                <button
+                                  onClick={() => deleteMeal(meal.id)}
+                                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive shrink-0"
+                                  aria-label="Delete meal"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
+                            ))}
+                            <button
+                              onClick={() => openAddMeal(bucket.date)}
+                              className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+                            >
+                              <Plus className="h-3 w-3" /> Add
+                            </button>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Activities / events for the day */}
+                      <div className="flex-1 px-2 py-1.5 space-y-1">
+                        {dayEvents.map((event) => {
+                          const highlighted = !!event.showOnPlanner;
+                          return (
+                            <div key={event.id} className="flex items-stretch gap-1">
+                              <button
+                                onClick={() => setEventToEdit(event)}
+                                className={cn(
+                                  'flex-1 min-w-0 text-left text-xs px-1.5 py-1 rounded truncate block hover:opacity-90',
+                                  highlighted ? 'text-white' : 'text-foreground border border-dashed border-border bg-transparent opacity-70',
+                                )}
+                                style={highlighted ? { backgroundColor: event.color || '#3B82F6' } : undefined}
+                                title={event.title}
+                              >
+                                <span className="font-medium truncate block">{event.title}</span>
+                                {!event.allDay && (
+                                  <span className={cn('block text-[10px]', highlighted ? 'opacity-85' : 'opacity-70')}>
+                                    {formatDisplayTimeRange(
+                                      event.startTime,
+                                      event.endTime ?? new Date(event.startTime.getTime() + 3600000),
+                                      timeFormat,
+                                      displayTimezone,
+                                    )}
+                                  </span>
+                                )}
+                              </button>
+                              {showAllEvents && (
+                                <button
+                                  onClick={() => toggleEventHighlight(event.id, !highlighted)}
+                                  className={cn(
+                                    'shrink-0 w-6 flex items-center justify-center rounded hover:bg-accent',
+                                    highlighted ? 'text-amber-500' : 'text-muted-foreground',
+                                  )}
+                                  title={highlighted ? 'Remove from Planner highlights' : 'Show on Planner'}
+                                  aria-label={highlighted ? 'Remove from Planner highlights' : 'Show on Planner'}
+                                >
+                                  <Star className="h-3.5 w-3.5" fill={highlighted ? 'currentColor' : 'none'} />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                        <button
+                          onClick={() => openAddEvent(bucket.date)}
+                          className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+                        >
+                          <Plus className="h-3 w-3" /> Add activity
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Weekly goals / habit tracker */}
+              <div className="rounded-lg border border-border bg-card/60 p-3">
+                <h2 className="text-sm font-bold mb-2">Goals</h2>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr>
+                        <th className="text-left font-medium text-muted-foreground pb-1 pr-2">Goal</th>
+                        {DAYS_OF_WEEK_MON_FIRST.map((d) => (
+                          <th key={d} className="text-center font-medium text-muted-foreground pb-1 w-9">
+                            {DAY_LABELS[d].slice(0, 1)}
+                          </th>
+                        ))}
+                        <th className="w-6" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {habits.map((habit) => (
+                        <tr key={habit.id} className="border-t border-border/60 group">
+                          <td className="py-1 pr-2">{habit.label}</td>
+                          {days.map((bucket) => {
+                            const dateStr = format(bucket.date, 'yyyy-MM-dd');
+                            return (
+                              <td key={dateStr} className="text-center py-1">
+                                <Checkbox
+                                  checked={isChecked(habit, dateStr)}
+                                  onCheckedChange={(checked) =>
+                                    toggleHabitCheck(habit.id, dateStr, checked === true)
+                                  }
+                                />
+                              </td>
+                            );
+                          })}
+                          <td className="text-center">
+                            <button
+                              onClick={() => removeHabit(habit.id)}
+                              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                              aria-label="Remove goal"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <form onSubmit={handleAddHabit} className="flex items-center gap-2 mt-2">
+                  <Input
+                    value={newHabitLabel}
+                    onChange={(e) => setNewHabitLabel(e.target.value)}
+                    placeholder="Add a weekly goal…"
+                    className="h-8 text-sm max-w-xs"
+                  />
+                  <Button type="submit" size="sm" variant="outline" disabled={!newHabitLabel.trim()}>
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Add
+                  </Button>
+                </form>
+              </div>
+
+              {/* Notes + mini calendars */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="rounded-lg border border-border bg-card/60 p-3">
+                  <h2 className="text-sm font-bold mb-2">Notes</h2>
+                  <Textarea
+                    value={noteDraft}
+                    onChange={(e) => handleNoteChange(e.target.value)}
+                    placeholder="Shopping list, reminders, anything for the week…"
+                    className="min-h-[140px] text-sm"
+                  />
+                  {noteSaving && <div className="text-[11px] text-muted-foreground mt-1">Saving…</div>}
+                </div>
+                <div className="rounded-lg border border-border bg-card/60 p-3 flex gap-4">
+                  <MiniMonth month={currentWeek} today={today} />
+                  <MiniMonth month={addMonths(currentWeek, 1)} today={today} />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {showAddMeal && activeDay && (
+        <MealModal
+          weekOf={weekOfString}
+          defaultDay={DAYS_OF_WEEK_MON_FIRST[days.findIndex((d) => isSameDay(d.date, activeDay))] ?? 'monday'}
+          dayOptions={DAYS_OF_WEEK_MON_FIRST}
+          recipes={recipes}
+          onClose={() => setShowAddMeal(false)}
+          onSave={(meal) => { addMeal(meal); setShowAddMeal(false); }}
+        />
+      )}
+
+      <AddEventModal
+        open={showAddEvent}
+        onOpenChange={setShowAddEvent}
+        defaultDate={activeDay ?? undefined}
+        defaultShowOnPlanner
+        onEventCreated={() => refreshDays()}
+      />
+
+      {eventToEdit && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setEventToEdit(null)}>
+          <div className="bg-card rounded-lg p-4 max-w-sm w-full mx-4 shadow-lg border border-border" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-bold mb-2">{eventToEdit.title}</h2>
+            {eventToEdit.location && <p className="text-sm text-muted-foreground mb-3">{eventToEdit.location}</p>}
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { toggleEventHighlight(eventToEdit.id, !eventToEdit.showOnPlanner); setEventToEdit(null); }}
+              >
+                <Star className="h-3.5 w-3.5 mr-1" fill={eventToEdit.showOnPlanner ? 'currentColor' : 'none'} />
+                {eventToEdit.showOnPlanner ? 'Unstar' : 'Star'}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setEventToEdit(null)}>Close</Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => { deleteEvent(eventToEdit.id); setEventToEdit(null); }}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog {...confirmDialogProps} />
+    </PageWrapper>
+  );
+}

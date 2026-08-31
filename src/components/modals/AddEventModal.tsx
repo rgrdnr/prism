@@ -56,6 +56,7 @@ export interface CreatedEvent {
   recurrenceRule: string | null;
   color: string | null;
   reminderMinutes: number | null;
+  showOnPlanner: boolean;
 }
 
 /**
@@ -73,6 +74,7 @@ export interface EventToEdit {
   recurrenceRule?: string;
   color?: string;
   reminderMinutes?: number;
+  showOnPlanner?: boolean;
   calendarSourceId?: string;
 }
 
@@ -90,6 +92,8 @@ export interface AddEventModalProps {
   event?: EventToEdit;
   /** Pre-fill start date when creating */
   defaultDate?: Date;
+  /** Default state of "Show on Weekly Planner" when creating (not used in edit mode). */
+  defaultShowOnPlanner?: boolean;
 }
 
 /**
@@ -169,6 +173,7 @@ export function AddEventModal({
   onEventCreated,
   event,
   defaultDate,
+  defaultShowOnPlanner = false,
 }: AddEventModalProps) {
   const isEditMode = !!event;
 
@@ -211,6 +216,7 @@ export function AddEventModal({
   const [allDay, setAllDay] = useState(false);
   const [recurrenceRule, setRecurrenceRule] = useState('');
   const [reminderMinutes, setReminderMinutes] = useState<number | ''>('');
+  const [showOnPlanner, setShowOnPlanner] = useState(false);
   const [calendarSourceId, setCalendarSourceId] = useState<string>('');
   const [showMore, setShowMore] = useState(false);
 
@@ -285,8 +291,9 @@ export function AddEventModal({
       }
       setRecurrenceRule(event.recurrenceRule || '');
       setReminderMinutes(event.reminderMinutes ?? '');
+      setShowOnPlanner(event.showOnPlanner ?? false);
       setCalendarSourceId(event.calendarSourceId || defaultCalendarId);
-      setShowMore(!!(event.description || event.location || event.reminderMinutes || event.recurrenceRule));
+      setShowMore(!!(event.description || event.location || event.reminderMinutes || event.recurrenceRule || event.showOnPlanner));
     } else if (open && defaultDate) {
       // Calendar cells are already presentation-only wall dates.
       const d = format(defaultDate, 'yyyy-MM-dd');
@@ -294,15 +301,19 @@ export function AddEventModal({
       setEndDate(d);
       setStartTimeStr('09:00');
       setEndTimeStr('10:00');
+      setShowOnPlanner(defaultShowOnPlanner);
+      if (defaultShowOnPlanner) setShowMore(true);
     } else if (open) {
       const today = formatDateLocal(new Date(), displayTimezone);
       setStartDate(today);
       setEndDate(today);
       setStartTimeStr('09:00');
       setEndTimeStr('10:00');
+      setShowOnPlanner(defaultShowOnPlanner);
+      if (defaultShowOnPlanner) setShowMore(true);
     }
     if (open && !event) setCalendarSourceId(defaultCalendarId);
-  }, [open, event, defaultDate, defaultCalendarId, displayTimezone]);
+  }, [open, event, defaultDate, defaultCalendarId, defaultShowOnPlanner, displayTimezone]);
 
   // Reset form when modal closes
   useEffect(() => {
@@ -310,6 +321,7 @@ export function AddEventModal({
       setTitle(''); setDescription(''); setLocation('');
       setStartDate(''); setStartTimeStr(''); setEndDate(''); setEndTimeStr('');
       setAllDay(false); setRecurrenceRule(''); setReminderMinutes('');
+      setShowOnPlanner(false);
       setCalendarSourceId(defaultCalendarId); setShowMore(false); setError(null);
     }
   }, [open, defaultCalendarId]);
@@ -349,6 +361,7 @@ export function AddEventModal({
         recurring,
         recurrenceRule: recurring ? recurrenceRule : undefined,
         reminderMinutes: reminderMinutes !== '' ? Number(reminderMinutes) : undefined,
+        showOnPlanner,
         calendarSourceId: calendarSourceId || undefined,
         color: eventColor || undefined,
       };
@@ -609,6 +622,14 @@ export function AddEventModal({
                   ))}
                 </SelectContent>
               </Select>
+
+              {/* Weekly Planner highlight */}
+              <div className="flex items-center gap-1.5 ml-1">
+                <Switch id="event-show-on-planner" checked={showOnPlanner} onCheckedChange={setShowOnPlanner} />
+                <Label htmlFor="event-show-on-planner" className="text-sm cursor-pointer select-none">
+                  Show on Weekly Planner
+                </Label>
+              </div>
             </div>
           )}
 

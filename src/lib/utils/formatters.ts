@@ -162,6 +162,7 @@ export function formatEventRow(row: {
   recurrenceRule: string | null;
   color: string | null;
   reminderMinutes: number | null;
+  showOnPlanner: boolean;
   calendarSourceId: string | null;
   calendarSourceName: string | null;
   calendarSourceColor: string | null;
@@ -190,6 +191,7 @@ export function formatEventRow(row: {
     recurrenceRule: row.recurrenceRule,
     color: eventColor,
     reminderMinutes: row.reminderMinutes,
+    showOnPlanner: row.showOnPlanner,
     calendarSource: row.calendarSourceId
       ? {
           id: row.calendarSourceId,

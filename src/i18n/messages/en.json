@@ -3,6 +3,7 @@
     "nav": {
       "dashboard": "Dashboard",
       "calendar": "Calendar",
+      "planner": "Planner",
       "tasks": "Tasks",
       "chores": "Chores",
       "goals": "Goals",

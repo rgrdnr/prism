@@ -2660,3 +2660,40 @@ CREATE TABLE IF NOT EXISTS public.excluded_photos (
   created_at timestamp DEFAULT now() NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS excluded_photos_source_external_unique ON public.excluded_photos (source_id, external_id);
+
+-- Weekly Planner: one freeform note per week (keyed by the Monday date, matching meals.week_of).
+CREATE TABLE IF NOT EXISTS public.weekly_planner_notes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  week_of date NOT NULL,
+  content text DEFAULT '' NOT NULL,
+  updated_by uuid REFERENCES public.users(id) ON DELETE SET NULL,
+  created_at timestamp DEFAULT now() NOT NULL,
+  updated_at timestamp DEFAULT now() NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS weekly_planner_notes_week_of_idx ON public.weekly_planner_notes (week_of);
+
+-- Weekly Planner: recurring goal/habit definitions plus their dated checks (Mon-Sun grid).
+CREATE TABLE IF NOT EXISTS public.weekly_habits (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  label varchar(255) NOT NULL,
+  sort_order integer DEFAULT 0 NOT NULL,
+  archived boolean DEFAULT false NOT NULL,
+  created_by uuid REFERENCES public.users(id) ON DELETE SET NULL,
+  created_at timestamp DEFAULT now() NOT NULL,
+  updated_at timestamp DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS weekly_habits_sort_order_idx ON public.weekly_habits (sort_order);
+
+CREATE TABLE IF NOT EXISTS public.weekly_habit_checks (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  habit_id uuid NOT NULL REFERENCES public.weekly_habits(id) ON DELETE CASCADE,
+  date date NOT NULL,
+  checked boolean DEFAULT true NOT NULL,
+  checked_by uuid REFERENCES public.users(id) ON DELETE SET NULL,
+  created_at timestamp DEFAULT now() NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS weekly_habit_checks_habit_date_idx ON public.weekly_habit_checks (habit_id, date);
+CREATE INDEX IF NOT EXISTS weekly_habit_checks_date_idx ON public.weekly_habit_checks (date);
+
+-- Weekly Planner: local-only per-event curation flag (never synced to source calendars).
+ALTER TABLE public.events ADD COLUMN IF NOT EXISTS show_on_planner boolean DEFAULT false NOT NULL;

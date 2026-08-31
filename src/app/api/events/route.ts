@@ -137,6 +137,7 @@ export async function GET(request: NextRequest) {
           recurrenceRule: events.recurrenceRule,
           color: events.color,
           reminderMinutes: events.reminderMinutes,
+          showOnPlanner: events.showOnPlanner,
           createdAt: events.createdAt,
           updatedAt: events.updatedAt,
           // Calendar source data
@@ -287,6 +288,7 @@ export async function POST(request: NextRequest) {
       recurrenceRule,
       color,
       reminderMinutes,
+      showOnPlanner,
       createdBy,
     } = validation.data;
 
@@ -393,6 +395,7 @@ export async function POST(request: NextRequest) {
         recurrenceRule: recurrenceRule || null,
         color: color || null,
         reminderMinutes: reminderMinutes ?? null,
+        showOnPlanner: showOnPlanner ?? false,
         createdBy: createdBy || null,
       })
       .returning();
@@ -418,6 +421,7 @@ export async function POST(request: NextRequest) {
         recurrenceRule: events.recurrenceRule,
         color: events.color,
         reminderMinutes: events.reminderMinutes,
+        showOnPlanner: events.showOnPlanner,
         createdAt: events.createdAt,
         updatedAt: events.updatedAt,
         calendarSourceId: calendarSources.id,

@@ -24,6 +24,8 @@ export interface CalendarEvent {
   calendarId: string;
   /** The calendar group this event belongs to (for split-column views) */
   groupId?: string;
+  /** Curated as a Weekly Planner highlight (local-only, not synced). */
+  showOnPlanner?: boolean;
 }
 
 /**
@@ -41,6 +43,7 @@ export interface CalendarEventResponse {
   recurrenceRule: string | null;
   color: string | null;
   reminderMinutes: number | null;
+  showOnPlanner: boolean;
   calendarSource: {
     id: string;
     name: string;

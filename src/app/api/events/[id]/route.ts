@@ -59,6 +59,7 @@ export async function GET(
         recurrenceRule: events.recurrenceRule,
         color: events.color,
         reminderMinutes: events.reminderMinutes,
+        showOnPlanner: events.showOnPlanner,
         externalEventId: events.externalEventId,
         createdAt: events.createdAt,
         updatedAt: events.updatedAt,
@@ -90,6 +91,7 @@ export async function GET(
       recurrenceRule: eventWithSource.recurrenceRule,
       color: eventWithSource.color || eventWithSource.calendarSourceColor,
       reminderMinutes: eventWithSource.reminderMinutes,
+      showOnPlanner: eventWithSource.showOnPlanner,
       externalEventId: eventWithSource.externalEventId,
       calendarSource: eventWithSource.calendarSourceId
         ? {
@@ -250,6 +252,10 @@ export async function PATCH(
       updateData.reminderMinutes = body.reminderMinutes;
     }
 
+    if ('showOnPlanner' in body) {
+      updateData.showOnPlanner = Boolean(body.showOnPlanner);
+    }
+
     if ('calendarSourceId' in body) {
       if (body.calendarSourceId) {
         const [calendar] = await db
@@ -377,6 +383,7 @@ export async function PATCH(
         recurrenceRule: events.recurrenceRule,
         color: events.color,
         reminderMinutes: events.reminderMinutes,
+        showOnPlanner: events.showOnPlanner,
         createdAt: events.createdAt,
         updatedAt: events.updatedAt,
         calendarSourceId: calendarSources.id,
@@ -418,6 +425,7 @@ export async function PATCH(
       recurrenceRule: updatedEvent.recurrenceRule,
       color: updatedEvent.color || updatedEvent.calendarSourceColor,
       reminderMinutes: updatedEvent.reminderMinutes,
+      showOnPlanner: updatedEvent.showOnPlanner,
       calendarSource: updatedEvent.calendarSourceId
         ? {
             id: updatedEvent.calendarSourceId,

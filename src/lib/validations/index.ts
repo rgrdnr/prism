@@ -26,6 +26,7 @@ const eventBaseSchema = z.object({
   recurrenceRule: z.string().max(500).optional(),
   color: hexColorSchema.optional(),
   reminderMinutes: z.number().int().min(0).max(10080).optional(), // max 1 week
+  showOnPlanner: z.boolean().optional(),
   createdBy: uuidSchema.optional(),
 });
 
@@ -283,6 +284,29 @@ export const upsertCalendarNoteSchema = z.object({
 export const calendarNotesQuerySchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+});
+
+// WEEKLY PLANNER SCHEMAS
+
+export const upsertWeeklyPlannerNoteSchema = z.object({
+  weekOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  content: z.string().max(10000),
+});
+
+export const createWeeklyHabitSchema = z.object({
+  label: z.string().min(1).max(255),
+  sortOrder: z.number().int().min(0).optional().default(0),
+});
+
+export const updateWeeklyHabitSchema = z.object({
+  label: z.string().min(1).max(255).optional(),
+  sortOrder: z.number().int().min(0).optional(),
+  archived: z.boolean().optional(),
+});
+
+export const setWeeklyHabitCheckSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  checked: z.boolean(),
 });
 
 // API TOKEN SCHEMAS
