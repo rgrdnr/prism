@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useState, useEffect, useRef } from 'react';
-import { format, isSameDay } from 'date-fns';
+import { format, isSameDay, isBefore, startOfDay } from 'date-fns';
 import { addMonths } from 'date-fns';
 import {
   CalendarDays,
@@ -26,7 +26,7 @@ import { MealModal } from '@/app/meals/MealsView';
 import { WeekItemCard } from '@/components/calendar/cells/WeekItemCard';
 import { useRecipes } from '@/lib/hooks/useRecipes';
 import { useTimeFormat } from '@/components/providers';
-import { formatDisplayTimeRange } from '@/lib/utils/timeFormat';
+import { formatDisplayTimeRange, isCalendarEventPast } from '@/lib/utils/timeFormat';
 import { cn } from '@/lib/utils';
 import { DAYS_OF_WEEK_MON_FIRST, DAY_LABELS } from '@/lib/constants/days';
 import { MiniMonth } from './MiniMonth';
@@ -150,15 +150,17 @@ export function PlannerView() {
                 {days.map((bucket, i) => {
                   const dayKey = DAYS_OF_WEEK_MON_FIRST[i] ?? 'monday';
                   const isToday = isSameDay(bucket.date, today);
+                  const isPastDay = isBefore(bucket.date, startOfDay(today)) && !isToday;
                   const dayEventsAll = [...bucket.allDayEvents, ...bucket.timedEvents];
                   const dayEvents = showAllEvents ? dayEventsAll : dayEventsAll.filter((e) => e.showOnPlanner);
                   return (
                     <div
                       key={bucket.date.toISOString()}
-                      className={
-                        'flex flex-col rounded-lg border border-border bg-card/60 min-h-[220px] ' +
-                        (isToday ? 'ring-2 ring-primary' : '')
-                      }
+                      className={cn(
+                        'flex flex-col rounded-lg border border-border bg-card/60 min-h-[220px]',
+                        isToday && 'ring-2 ring-primary',
+                        isPastDay && 'opacity-55 saturate-[0.7]',
+                      )}
                     >
                       <div className="px-2 py-1.5 border-b border-border text-center">
                         <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -213,8 +215,18 @@ export function PlannerView() {
                       <div className="flex-1 px-2 py-1.5 space-y-1">
                         {dayEvents.map((event) => {
                           const highlighted = !!event.showOnPlanner;
+                          // Whole past days are already dimmed by the card container;
+                          // this additionally fades an event on *today* once its own
+                          // end time has passed, so "done for today" reads at a glance.
+                          const isPastEvent = isToday && isCalendarEventPast(
+                            event.startTime,
+                            event.endTime,
+                            event.allDay,
+                            today,
+                            displayTimezone,
+                          );
                           return (
-                            <div key={event.id} className="flex items-stretch gap-1">
+                            <div key={event.id} className={cn('flex items-stretch gap-1', isPastEvent && 'opacity-50')}>
                               <button
                                 onClick={() => setEventToEdit(event)}
                                 className={cn(
