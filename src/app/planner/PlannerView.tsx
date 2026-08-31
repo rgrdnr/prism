@@ -13,6 +13,7 @@ import {
   Star,
   Eye,
   EyeOff,
+  Pencil,
 } from 'lucide-react';
 import { PageWrapper, SubpageHeader, FilterBar } from '@/components/layout';
 import { Button } from '@/components/ui/button';
@@ -67,12 +68,15 @@ export function PlannerView() {
     activeDay,
     editingMeal,
     setEditingMeal,
+    editingEvent,
+    setEditingEvent,
     addMeal,
     editMeal,
     deleteMeal,
     deleteEvent,
     openAddMeal,
     openAddEvent,
+    openEditEvent,
     confirmDialogProps,
   } = usePlannerViewData();
 
@@ -230,10 +234,10 @@ export function PlannerView() {
                               <button
                                 onClick={() => setEventToEdit(event)}
                                 className={cn(
-                                  'flex-1 min-w-0 text-left text-xs px-1.5 py-1 rounded truncate block hover:opacity-90',
-                                  highlighted ? 'text-white' : 'text-foreground border border-dashed border-border bg-transparent opacity-70',
+                                  'flex-1 min-w-0 text-left text-xs px-1.5 py-1 rounded truncate block text-white hover:opacity-90',
+                                  !highlighted && 'opacity-50 border border-dashed border-white/50',
                                 )}
-                                style={highlighted ? { backgroundColor: event.color || '#3B82F6' } : undefined}
+                                style={{ backgroundColor: event.color || '#3B82F6' }}
                                 title={event.title}
                               >
                                 <span className="font-medium truncate block">{event.title}</span>
@@ -393,7 +397,7 @@ export function PlannerView() {
           <div className="bg-card rounded-lg p-4 max-w-sm w-full mx-4 shadow-lg border border-border" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-bold mb-2">{eventToEdit.title}</h2>
             {eventToEdit.location && <p className="text-sm text-muted-foreground mb-3">{eventToEdit.location}</p>}
-            <div className="flex justify-end gap-2">
+            <div className="flex justify-end gap-2 flex-wrap">
               <Button
                 variant="outline"
                 size="sm"
@@ -401,6 +405,13 @@ export function PlannerView() {
               >
                 <Star className="h-3.5 w-3.5 mr-1" fill={eventToEdit.showOnPlanner ? 'currentColor' : 'none'} />
                 {eventToEdit.showOnPlanner ? 'Unstar' : 'Star'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { openEditEvent(eventToEdit); setEventToEdit(null); }}
+              >
+                <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
               </Button>
               <Button variant="outline" size="sm" onClick={() => setEventToEdit(null)}>Close</Button>
               <Button
@@ -414,6 +425,27 @@ export function PlannerView() {
           </div>
         </div>
       )}
+
+      <AddEventModal
+        open={!!editingEvent}
+        onOpenChange={(open) => { if (!open) setEditingEvent(null); }}
+        event={editingEvent ? {
+          id: editingEvent.id,
+          title: editingEvent.title,
+          description: editingEvent.description,
+          location: editingEvent.location,
+          startTime: editingEvent.startTime,
+          endTime: editingEvent.endTime,
+          allDay: editingEvent.allDay,
+          color: editingEvent.color,
+          recurring: editingEvent.recurring ?? false,
+          recurrenceRule: editingEvent.recurrenceRule ?? undefined,
+          reminderMinutes: editingEvent.reminderMinutes ?? undefined,
+          showOnPlanner: editingEvent.showOnPlanner,
+          calendarSourceId: editingEvent.calendarId !== 'local' ? editingEvent.calendarId : undefined,
+        } : undefined}
+        onEventCreated={() => { refreshDays(); setEditingEvent(null); }}
+      />
 
       <ConfirmDialog {...confirmDialogProps} />
     </PageWrapper>

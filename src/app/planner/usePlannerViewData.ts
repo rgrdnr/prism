@@ -9,6 +9,7 @@ import { useConfirmDialog } from '@/lib/hooks/useConfirmDialog';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { toast } from '@/components/ui/use-toast';
 import type { Meal } from '@/types';
+import type { CalendarEvent } from '@/types/calendar';
 
 // The paper planner this page mirrors is always laid out Monday -> Sunday,
 // independent of the user's global "week starts on" display preference.
@@ -77,6 +78,13 @@ export function usePlannerViewData() {
   const [showAddEvent, setShowAddEvent] = useState(false);
   const [activeDay, setActiveDay] = useState<Date | null>(null);
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+
+  const openEditEvent = useCallback(async (event: CalendarEvent) => {
+    const user = await requireAuth('Edit Event', 'Please log in to edit an event');
+    if (!user) return;
+    setEditingEvent(event);
+  }, [requireAuth]);
 
   const openAddMeal = useCallback(async (day: Date) => {
     const user = await requireAuth('Add Meal', 'Please log in to add a meal');
@@ -178,8 +186,11 @@ export function usePlannerViewData() {
     setActiveDay,
     editingMeal,
     setEditingMeal,
+    editingEvent,
+    setEditingEvent,
     openAddMeal,
     openAddEvent,
+    openEditEvent,
     addMeal,
     editMeal,
     deleteMeal,
