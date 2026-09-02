@@ -24,6 +24,7 @@ import {
   UtensilsCrossed,
   ChefHat,
   Trophy,
+  CalendarDays,
   X,
   Sun,
   Moon,
@@ -62,6 +63,7 @@ const primaryItems: NavItem[] = [
 
 // Secondary items shown in "More" menu
 const secondaryItems: NavItem[] = [
+  { label: 'Planner', i18nKey: 'nav.planner', href: '/planner', icon: CalendarDays },
   { label: 'Recipes', i18nKey: 'nav.recipes', href: '/recipes', icon: ChefHat },
   { label: 'Settings', i18nKey: 'nav.settings', href: '/settings', icon: Settings },
 ];

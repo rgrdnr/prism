@@ -25,6 +25,7 @@ import {
   Clock,
   Image as ImageIcon,
   ChefHat,
+  CalendarDays,
 } from 'lucide-react';
 import type { useDashboardData } from './useDashboardData';
 import type { CalendarEvent } from '@/types/calendar';
@@ -268,6 +269,14 @@ export function PointsCard({ data }: { data: DashData['points'] }) {
           ))}
         </div>
       )}
+    </CardShell>
+  );
+}
+
+export function PlannerCard() {
+  return (
+    <CardShell href="/planner" icon={<CalendarDays className="h-4 w-4 text-indigo-500" />} title="Planner">
+      <p className="text-xs text-muted-foreground">This week's meals, activities & goals</p>
     </CardShell>
   );
 }

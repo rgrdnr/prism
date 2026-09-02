@@ -28,12 +28,12 @@ import { useBusTracking } from '@/lib/hooks/useBusTracking';
 import {
   WeatherCard, ClockCard, CalendarCard, ChoresCard, TasksCard,
   ShoppingCard, MealsCard, MessagesCard, BirthdaysCard, PointsCard,
-  WishesCard, PhotosCard, RecipesCard, BusTrackingCard, MobileLayoutProvider,
+  WishesCard, PhotosCard, RecipesCard, PlannerCard, BusTrackingCard, MobileLayoutProvider,
 } from './MobileCards';
 import {
   WeatherTile, ClockTile, CalendarTile, ChoresTile, TasksTile,
   ShoppingTile, MealsTile, MessagesTile, BirthdaysTile, PointsTile,
-  WishesTile, PhotosTile, RecipesTile, BusTrackingTile,
+  WishesTile, PhotosTile, RecipesTile, PlannerTile, BusTrackingTile,
 } from './TileCards';
 
 function SortableCard({ id, children }: { id: string; children: React.ReactNode }) {
@@ -117,6 +117,7 @@ export const MobileDashboard = memo(function MobileDashboard({ data }: MobileDas
     wishes: <WishesTile />,
     photos: <PhotosTile />,
     recipes: <RecipesTile />,
+    planner: <PlannerTile />,
     busTracking: <BusTrackingTile routes={busRoutes} />,
   }), [data, busRoutes]);
 
@@ -134,6 +135,7 @@ export const MobileDashboard = memo(function MobileDashboard({ data }: MobileDas
     wishes: <WishesCard />,
     photos: <PhotosCard />,
     recipes: <RecipesCard />,
+    planner: <PlannerCard />,
     busTracking: <BusTrackingCard routes={busRoutes} />,
   }), [data, busRoutes]);
 
@@ -151,6 +153,7 @@ export const MobileDashboard = memo(function MobileDashboard({ data }: MobileDas
     wishes: true,
     photos: true,
     recipes: true,
+    planner: true,
     busTracking: (busRoutes?.length ?? 0) > 0,
   }), [data, busRoutes]);
 

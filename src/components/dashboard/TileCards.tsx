@@ -7,7 +7,7 @@ import {
   Calendar, Cloud, Sun, CloudRain, CloudSnow, CloudSun,
   MessageSquare, CheckSquare, ClipboardList, ShoppingCart,
   UtensilsCrossed, Cake, Trophy, Heart, Bus, Clock,
-  Image as ImageIcon, ChefHat, ChevronRight,
+  Image as ImageIcon, ChefHat, ChevronRight, CalendarDays,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DAYS_OF_WEEK } from '@/lib/constants/days';
@@ -172,6 +172,15 @@ export function MealsTile({ data }: { data: DashData['meals'] }) {
         ? <><TileLine>Tonight:</TileLine><TileLine dim>{todayMeal.name ?? todayMeal.recipe ?? 'Planned'}</TileLine></>
         : <TileLine dim>No meal planned</TileLine>
       }
+    </TileShell>
+  );
+}
+
+export function PlannerTile() {
+  return (
+    <TileShell href="/planner" icon={<CalendarDays className="h-4 w-4 text-indigo-500" />} title="Planner">
+      <TileLine>This week</TileLine>
+      <TileLine dim>Meals, activities & goals</TileLine>
     </TileShell>
   );
 }

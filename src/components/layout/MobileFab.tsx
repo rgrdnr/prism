@@ -42,6 +42,7 @@ const ALL_CARDS: { id: string; label: string }[] = [
   { id: 'weather', label: 'Weather' },
   { id: 'clock', label: 'Clock' },
   { id: 'calendar', label: 'Calendar' },
+  { id: 'planner', label: 'Planner' },
   { id: 'busTracking', label: 'Bus Tracker' },
   { id: 'chores', label: 'Chores' },
   { id: 'tasks', label: 'Tasks' },

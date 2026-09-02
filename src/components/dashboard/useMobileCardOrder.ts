@@ -6,6 +6,7 @@ const STORAGE_KEY = 'prism-mobile-card-order';
 const DEFAULT_ORDER = [
   'weather',
   'calendar',
+  'planner',
   'busTracking',
   'chores',
   'tasks',
