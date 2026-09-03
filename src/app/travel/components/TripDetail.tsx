@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { X, Trash2, Plus, GripVertical, MapPin, Pencil, TreePine } from 'lucide-react';
+import { X, Trash2, Plus, GripVertical, MapPin, Pencil, TreePine, DollarSign } from 'lucide-react';
 import {
   DndContext, closestCenter, KeyboardSensor, MouseSensor, TouchSensor,
   useSensor, useSensors, type DragEndEvent,
@@ -14,13 +14,16 @@ import { CSS } from '@dnd-kit/utilities';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
-import type { TravelTrip, TravelPin, PinType } from '../types';
-import { TRIP_STYLE_CONFIG, STATUS_CONFIG, NPS_COLOR } from '../types';
+import type { TravelTrip, TravelPin, PinType, TravelExpense, ExpenseCategory } from '../types';
+import { TRIP_STYLE_CONFIG, STATUS_CONFIG, NPS_COLOR, EXPENSE_CATEGORY_CONFIG } from '../types';
 import { InlineChildAdd } from './InlineChildAdd';
+import { ExpenseModal } from './ExpenseModal';
+import { formatCurrency } from '../utils/formatCurrency';
 
 interface TripDetailProps {
   trip: TravelTrip;
   stops: TravelPin[];
+  expenses: TravelExpense[];
   onUpdate: (data: Partial<TravelTrip>) => Promise<void>;
   onDelete: () => void;
   onClose: () => void;
@@ -29,6 +32,30 @@ interface TripDetailProps {
   onReorderStops: (stopIds: string[]) => Promise<void>;
   onSelectStop: (stop: TravelPin) => void;
   onEdit: () => void;
+  onAddExpense: (data: { category: ExpenseCategory; description: string; amount: number; date: string | null }) => Promise<void>;
+  onUpdateExpense: (id: string, data: { category: ExpenseCategory; description: string; amount: number; date: string | null }) => Promise<void>;
+  onDeleteExpense: (expenseId: string) => void;
+}
+
+function ExpenseRow({ expense, onEdit, onDelete }: { expense: TravelExpense; onEdit: () => void; onDelete: () => void }) {
+  const config = EXPENSE_CATEGORY_CONFIG[expense.category];
+  return (
+    <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/30 px-2 py-1.5">
+      <span className="shrink-0 text-sm" title={config.label}>{config.icon}</span>
+      <button onClick={onEdit} className="flex-1 min-w-0 text-left">
+        <p className="text-xs font-medium truncate">{expense.description}</p>
+        {expense.date && (
+          <p className="text-[10px] text-muted-foreground">
+            {format(parseISO(expense.date), 'MMM d, yyyy')}
+          </p>
+        )}
+      </button>
+      <span className="shrink-0 text-xs font-medium tabular-nums">{formatCurrency(expense.amount)}</span>
+      <button onClick={onDelete} className="shrink-0 text-muted-foreground/40 hover:text-destructive transition-colors">
+        <Trash2 className="h-3 w-3" />
+      </button>
+    </div>
+  );
 }
 
 function SortableStopItem({
@@ -85,11 +112,13 @@ function SortableStopItem({
 }
 
 export function TripDetail({
-  trip, stops, onUpdate, onDelete, onClose, onAddStop,
+  trip, stops, expenses, onUpdate, onDelete, onClose, onAddStop,
   onDeleteStop, onReorderStops, onSelectStop, onEdit,
+  onAddExpense, onUpdateExpense, onDeleteExpense,
 }: TripDetailProps) {
   const [localStops, setLocalStops] = React.useState(stops);
   const [deleting, setDeleting] = React.useState(false);
+  const [expenseModal, setExpenseModal] = React.useState<{ mode: 'add' } | { mode: 'edit'; expense: TravelExpense } | null>(null);
 
   React.useEffect(() => { setLocalStops(stops); }, [stops]);
 
@@ -130,7 +159,23 @@ export function TripDetail({
     ? [...localStops].sort((a, b) => (b.isHub ? 1 : 0) - (a.isHub ? 1 : 0) || a.sortOrder - b.sortOrder)
     : [...localStops].sort((a, b) => a.sortOrder - b.sortOrder);
 
+  const sortedExpenses = [...expenses].sort((a, b) => (a.date ?? '').localeCompare(b.date ?? '') || a.createdAt.localeCompare(b.createdAt));
+  const totalSpent = expenses.reduce((sum, e) => sum + Number(e.amount), 0);
+  const categoryTotals = (Object.keys(EXPENSE_CATEGORY_CONFIG) as ExpenseCategory[])
+    .map((cat) => ({ cat, total: expenses.filter((e) => e.category === cat).reduce((sum, e) => sum + Number(e.amount), 0) }))
+    .filter(({ total }) => total > 0);
+
+  const handleSaveExpense = async (data: { category: ExpenseCategory; description: string; amount: number; date: string | null }) => {
+    if (expenseModal?.mode === 'edit') {
+      await onUpdateExpense(expenseModal.expense.id, data);
+    } else {
+      await onAddExpense(data);
+    }
+    setExpenseModal(null);
+  };
+
   return (
+    <>
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-start justify-between px-4 py-3 border-b border-border shrink-0 gap-2">
@@ -210,6 +255,57 @@ export function TripDetail({
           </div>
         </div>
 
+        {/* Budget */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Budget
+            </h3>
+            <span className="flex items-center gap-0.5 text-xs font-semibold tabular-nums">
+              <DollarSign className="h-3 w-3" />{formatCurrency(totalSpent)}
+            </span>
+          </div>
+
+          {categoryTotals.length > 0 && (
+            <div className="flex gap-1.5 flex-wrap">
+              {categoryTotals.map(({ cat, total }) => (
+                <span
+                  key={cat}
+                  className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                  style={{ background: EXPENSE_CATEGORY_CONFIG[cat].color + '22', color: EXPENSE_CATEGORY_CONFIG[cat].color }}
+                >
+                  {EXPENSE_CATEGORY_CONFIG[cat].icon} {formatCurrency(total)}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {sortedExpenses.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic py-2">
+              No expenses yet — add flights, lodging, food, and more below.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {sortedExpenses.map((expense) => (
+                <ExpenseRow
+                  key={expense.id}
+                  expense={expense}
+                  onEdit={() => setExpenseModal({ mode: 'edit', expense })}
+                  onDelete={() => onDeleteExpense(expense.id)}
+                />
+              ))}
+            </div>
+          )}
+
+          <button
+            onClick={() => setExpenseModal({ mode: 'add' })}
+            className="flex items-center gap-0.5 text-xs text-primary hover:underline font-medium"
+          >
+            <Plus className="h-3 w-3" />
+            Add expense
+          </button>
+        </div>
+
         {/* Hub tip */}
         {trip.tripStyle === 'hub' && localStops.length > 0 && !localStops.some((s) => s.isHub) && (
           <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-md px-3 py-2">
@@ -232,5 +328,14 @@ export function TripDetail({
         </Button>
       </div>
     </div>
+
+    {expenseModal && (
+      <ExpenseModal
+        expense={expenseModal.mode === 'edit' ? expenseModal.expense : undefined}
+        onClose={() => setExpenseModal(null)}
+        onSave={handleSaveExpense}
+      />
+    )}
+    </>
   );
 }

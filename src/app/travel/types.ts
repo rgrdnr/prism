@@ -52,6 +52,20 @@ export interface TravelPin {
   updatedAt: string;
 }
 
+export type ExpenseCategory = 'transport' | 'lodging' | 'food' | 'activities' | 'other';
+
+export interface TravelExpense {
+  id: string;
+  tripId: string;
+  category: ExpenseCategory;
+  description: string;
+  amount: string; // decimal column — comes back as a string from drizzle/pg
+  date?: string | null;
+  createdBy?: { id: string; name: string | null; color: string | null } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface GeocodeResult {
   placeId: number;
   displayName: string;
@@ -75,6 +89,14 @@ export const PIN_TYPE_CONFIG: Record<PinType, { label: string; color: string; ic
   location:      { label: 'Location',      color: '#3B82F6', icon: '📍' },
   stop:          { label: 'Stop',          color: '#8B5CF6', icon: '📍' },
   national_park: { label: 'National Park', color: '#2D6A4F', icon: '🌲' },
+};
+
+export const EXPENSE_CATEGORY_CONFIG: Record<ExpenseCategory, { label: string; icon: string; color: string }> = {
+  transport:  { label: 'Transport',  icon: '✈️', color: '#3B82F6' },
+  lodging:    { label: 'Lodging',    icon: '🏨', color: '#8B5CF6' },
+  food:       { label: 'Food',       icon: '🍽️', color: '#F59E0B' },
+  activities: { label: 'Activities', icon: '🎟️', color: '#10B981' },
+  other:      { label: 'Other',      icon: '💰', color: '#6B7280' },
 };
 
 export const BUCKET_LIST_COLOR = '#F59E0B'; // gold — overlaid as star

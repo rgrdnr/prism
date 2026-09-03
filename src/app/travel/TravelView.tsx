@@ -13,7 +13,7 @@ import { PinForm } from './components/PinForm';
 import { TripForm } from './components/TripForm';
 import { TripDetail } from './components/TripDetail';
 import type { PinPendingChildren } from './components/PinForm';
-import type { TravelPin, TravelTrip, PinType } from './types';
+import type { TravelPin, TravelTrip, PinType, ExpenseCategory } from './types';
 
 const TravelGlobe = dynamic(
   () => import('./components/TravelGlobe').then((m) => m.TravelGlobe),
@@ -37,7 +37,12 @@ type Overlay =
   | { mode: 'trip-edit'; trip: TravelTrip };
 
 export function TravelView() {
-  const { pins, trips, loading, addPin, updatePin, deletePin, addTrip, updateTrip, deleteTrip } = useTravelData();
+  const {
+    pins, trips, expenses, loading,
+    addPin, updatePin, deletePin,
+    addTrip, updateTrip, deleteTrip,
+    addExpense, updateExpense, deleteExpense,
+  } = useTravelData();
   const { toast } = useToast();
 
   const handleMutationError = useCallback((err: unknown) => {
@@ -256,6 +261,34 @@ export function TravelView() {
     await Promise.all(stopIds.map((id, idx) => updatePin(id, { sortOrder: idx })));
   }, [updatePin]);
 
+  // ── Expense handlers ──────────────────────────────────────────────────────
+
+  const handleAddExpense = useCallback(async (
+    tripId: string, data: { category: ExpenseCategory; description: string; amount: number; date: string | null }
+  ) => {
+    try {
+      await addExpense({ tripId, ...data });
+    } catch (err) {
+      handleMutationError(err);
+      throw err;
+    }
+  }, [addExpense, handleMutationError]);
+
+  const handleUpdateExpense = useCallback(async (
+    id: string, data: { category: ExpenseCategory; description: string; amount: number; date: string | null }
+  ) => {
+    try {
+      await updateExpense(id, data);
+    } catch (err) {
+      handleMutationError(err);
+      throw err;
+    }
+  }, [updateExpense, handleMutationError]);
+
+  const handleDeleteExpense = useCallback(async (id: string) => {
+    try { await deleteExpense(id); } catch (err) { handleMutationError(err); }
+  }, [deleteExpense, handleMutationError]);
+
   const closeOverlay = useCallback(() => {
     setOverlay({ mode: 'none' });
     setSelectedPinId(null);
@@ -300,9 +333,12 @@ export function TravelView() {
     return s;
   }, [pins, rootPins]);
 
-  // Current trip stops for TripDetail
+  // Current trip stops/expenses for TripDetail
   const currentTripStops = overlay.mode === 'trip-detail'
     ? pins.filter((p) => p.tripId === overlay.trip.id).sort((a, b) => a.sortOrder - b.sortOrder)
+    : [];
+  const currentTripExpenses = overlay.mode === 'trip-detail'
+    ? expenses.filter((e) => e.tripId === overlay.trip.id)
     : [];
 
   return (
@@ -455,6 +491,7 @@ export function TravelView() {
                 <TripDetail
                   trip={overlay.trip}
                   stops={currentTripStops}
+                  expenses={currentTripExpenses}
                   onUpdate={(data) => handleUpdateTrip(overlay.trip.id, data)}
                   onDelete={() => handleDeleteTrip(overlay.trip.id)}
                   onClose={closeOverlay}
@@ -466,6 +503,9 @@ export function TravelView() {
                     setOverlay({ mode: 'detail', pin: stop });
                   }}
                   onEdit={() => setOverlay({ mode: 'trip-edit', trip: overlay.trip })}
+                  onAddExpense={(data) => handleAddExpense(overlay.trip.id, data)}
+                  onUpdateExpense={handleUpdateExpense}
+                  onDeleteExpense={handleDeleteExpense}
                 />
               ) : null}
             </div>

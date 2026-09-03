@@ -1794,6 +1794,29 @@ export const travelPinPhotos = pgTable('travel_pin_photos', {
 }));
 
 
+// Itemized cost line items for budgeting a trip (flights, lodging, food, etc.)
+export const travelExpenses = pgTable('travel_expenses', {
+  id: uuid('id').defaultRandom().primaryKey(),
+
+  tripId: uuid('trip_id')
+    .references(() => travelTrips.id, { onDelete: 'cascade' })
+    .notNull(),
+
+  category: varchar('category', { length: 20 }).notNull().default('other')
+    .$type<'transport' | 'lodging' | 'food' | 'activities' | 'other'>(),
+
+  description: varchar('description', { length: 255 }).notNull(),
+  amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
+  date: date('date'),
+
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  tripIdIdx: index('travel_expenses_trip_id_idx').on(table.tripId),
+}));
+
+
 
 
 export const travelTripsRelations = relations(travelTrips, ({ one, many }) => ({

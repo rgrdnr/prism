@@ -696,6 +696,23 @@ CREATE TABLE IF NOT EXISTS public.tasks (
 
 
 --
+-- Name: travel_expenses; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE IF NOT EXISTS public.travel_expenses (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    trip_id uuid NOT NULL,
+    category character varying(20) DEFAULT 'other'::character varying NOT NULL,
+    description character varying(255) NOT NULL,
+    amount numeric(10,2) NOT NULL,
+    date date,
+    created_by uuid,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: travel_pin_photos; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1176,6 +1193,14 @@ ALTER TABLE ONLY public.tasks
 
 ALTER TABLE ONLY public.travel_pin_photos
     ADD CONSTRAINT travel_pin_photos_pin_photo_key UNIQUE (pin_id, photo_id);
+
+
+--
+-- Name: travel_expenses travel_expenses_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.travel_expenses
+    ADD CONSTRAINT travel_expenses_pkey PRIMARY KEY (id);
 
 
 --
@@ -1723,6 +1748,13 @@ CREATE INDEX IF NOT EXISTS tasks_task_source_id_idx ON public.tasks USING btree 
 --
 
 CREATE INDEX IF NOT EXISTS tasks_task_source_idx ON public.tasks USING btree (task_source_id);
+
+
+--
+-- Name: travel_expenses_trip_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX IF NOT EXISTS travel_expenses_trip_id_idx ON public.travel_expenses USING btree (trip_id);
 
 
 --
@@ -2454,6 +2486,22 @@ ALTER TABLE ONLY public.tasks
 
 ALTER TABLE ONLY public.tasks
     ADD CONSTRAINT tasks_task_source_id_fkey FOREIGN KEY (task_source_id) REFERENCES public.task_sources(id) ON DELETE SET NULL;
+
+
+--
+-- Name: travel_expenses travel_expenses_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.travel_expenses
+    ADD CONSTRAINT travel_expenses_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: travel_expenses travel_expenses_trip_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.travel_expenses
+    ADD CONSTRAINT travel_expenses_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES public.travel_trips(id) ON DELETE CASCADE;
 
 
 --

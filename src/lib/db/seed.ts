@@ -860,6 +860,18 @@ async function seed() {
 
   console.log(`  Created 6 standalone pins + 1 trip with 5 stops`);
 
+  // Budget line items for the PNW trip
+  await db.insert(schema.travelExpenses).values([
+    { tripId: tripPNW.id, category: 'transport',  description: 'Flights to Seattle',      amount: '412.00', date: `${NOW.getFullYear()}-06-15`, createdBy: alex.id },
+    { tripId: tripPNW.id, category: 'transport',  description: 'Rental car (7 days)',      amount: '385.00', date: `${NOW.getFullYear()}-06-15`, createdBy: alex.id },
+    { tripId: tripPNW.id, category: 'lodging',    description: 'Seattle hotel (2 nights)', amount: '340.00', date: `${NOW.getFullYear()}-06-15`, createdBy: alex.id },
+    { tripId: tripPNW.id, category: 'lodging',    description: 'Portland Airbnb (2 nights)', amount: '260.00', date: `${NOW.getFullYear()}-06-19`, createdBy: jordan.id },
+    { tripId: tripPNW.id, category: 'food',       description: 'Restaurants budget',       amount: '450.00', createdBy: alex.id },
+    { tripId: tripPNW.id, category: 'activities', description: 'National park passes',     amount: '80.00',  createdBy: jordan.id },
+  ]);
+
+  console.log(`  Created 6 travel expenses`);
+
   // ─── WEEKEND PLACES ───────────────────────────────────────────────────────
   console.log('Creating weekend places...');
 
