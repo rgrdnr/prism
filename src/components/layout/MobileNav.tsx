@@ -14,6 +14,7 @@ import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { scopedHref, isNavActive } from '@/lib/utils/dashboardScope';
 import { useTranslations } from 'next-intl';
 import {
   ShoppingCart,
@@ -107,11 +108,11 @@ export function MobileNav({ user, onLogin, onLogout, uiHidden }: MobileNavProps)
           <div className="grid grid-cols-3 gap-1 p-2">
             {visibleSecondary.map((item) => {
               const Icon = item.icon;
-              const isActive = pathname === item.href;
+              const isActive = isNavActive(item.href, pathname);
               return (
                 <Link
                   key={item.href}
-                  href={item.href}
+                  href={scopedHref(item.href, pathname)}
                   onClick={() => setShowMore(false)}
                   className={cn(
                     'flex flex-col items-center gap-1 py-3 px-2 rounded-lg transition-colors',
@@ -178,8 +179,8 @@ export function MobileNav({ user, onLogin, onLogout, uiHidden }: MobileNavProps)
                 </>
               ) : (
                 <>
-                  <User className="h-5 w-5 text-red-500" />
-                  <span className="text-xs text-red-500">Login</span>
+                  <User className="h-5 w-5 text-destructive" />
+                  <span className="text-xs text-destructive">Login</span>
                 </>
               )}
             </button>
@@ -203,11 +204,11 @@ export function MobileNav({ user, onLogin, onLogout, uiHidden }: MobileNavProps)
         <div className="flex items-center justify-around h-16">
           {visiblePrimary.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href;
+            const isActive = isNavActive(item.href, pathname);
             return (
               <Link
                 key={item.href}
-                href={item.href}
+                href={scopedHref(item.href, pathname)}
                 className={cn(
                   'flex flex-col items-center gap-0.5 py-2 px-3 min-w-[64px] transition-colors',
                   isActive

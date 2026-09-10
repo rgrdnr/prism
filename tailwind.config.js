@@ -28,6 +28,14 @@ module.exports = {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))',
         },
+        success: {
+          DEFAULT: 'hsl(var(--success))',
+          foreground: 'hsl(var(--success-foreground))',
+        },
+        warning: {
+          DEFAULT: 'hsl(var(--warning))',
+          foreground: 'hsl(var(--warning-foreground))',
+        },
         muted: {
           DEFAULT: 'hsl(var(--muted))',
           foreground: 'hsl(var(--muted-foreground))',
@@ -86,7 +94,10 @@ module.exports = {
           // ~7% — the layout shift next/font exists to prevent, shipping
           // unnoticed. Read the variable, keep literals as the fallback for
           // anywhere it is not defined.
-          'var(--font-inter, Inter)',
+          // A theme's chosen face goes first, and resolves to the Inter
+          // variable when no theme sets one — so the default path is byte for
+          // byte what it was, including the metric-matched fallback below.
+          'var(--theme-font, var(--font-inter, Inter))',
           'Inter Fallback',
           'system-ui',
           '-apple-system',

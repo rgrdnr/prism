@@ -18,7 +18,9 @@ import * as React from 'react';
 import { useState, useEffect, useMemo } from 'react';
 import { Loader2, MapPin, AlignLeft, ChevronDown, ChevronUp } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
+import { useTranslations } from 'next-intl';
 import { useCalendarSources } from '@/lib/hooks';
+import { useDateLabels } from '@/lib/hooks/useDateLabels';
 import { useAuth, useTimeFormat } from '@/components/providers';
 import { fromDisplayDateTime, toDisplayDate } from '@/lib/utils/timeFormat';
 import { toast } from '@/components/ui/use-toast';
@@ -97,27 +99,30 @@ export interface AddEventModalProps {
 }
 
 /**
- * Recurrence presets
+ * Recurrence presets. `labelKey` indexes `calendar.eventForm.recurrence`; the
+ * RRULE on the left is protocol, the label on the right is copy.
  */
 const RECURRENCE_OPTIONS = [
-  { value: '', label: 'Does not repeat' },
-  { value: 'FREQ=DAILY', label: 'Daily' },
-  { value: 'FREQ=WEEKLY', label: 'Weekly' },
-  { value: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', label: 'Every weekday' },
-  { value: 'FREQ=MONTHLY', label: 'Monthly' },
-  { value: 'FREQ=YEARLY', label: 'Yearly' },
+  { value: '', labelKey: 'none' },
+  { value: 'FREQ=DAILY', labelKey: 'daily' },
+  { value: 'FREQ=WEEKLY', labelKey: 'weekly' },
+  { value: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', labelKey: 'weekdays' },
+  { value: 'FREQ=MONTHLY', labelKey: 'monthly' },
+  { value: 'FREQ=YEARLY', labelKey: 'yearly' },
 ];
 
 /**
- * Reminder options (minutes before event)
+ * Reminder options, in minutes before the event. The label is built from an
+ * ICU plural rather than a fixed string, so a language whose plural rules
+ * differ from English ("1 Minute" vs "5 Minuten") still reads correctly.
  */
 const REMINDER_OPTIONS = [
-  { value: 5, label: '5 minutes before' },
-  { value: 10, label: '10 minutes before' },
-  { value: 15, label: '15 minutes before' },
-  { value: 30, label: '30 minutes before' },
-  { value: 60, label: '1 hour before' },
-  { value: 1440, label: '1 day before' },
+  { value: 5, unitKey: 'minutesBefore', count: 5 },
+  { value: 10, unitKey: 'minutesBefore', count: 10 },
+  { value: 15, unitKey: 'minutesBefore', count: 15 },
+  { value: 30, unitKey: 'minutesBefore', count: 30 },
+  { value: 60, unitKey: 'hoursBefore', count: 1 },
+  { value: 1440, unitKey: 'daysBefore', count: 1 },
 ];
 
 /** Format date for datetime-local input (YYYY-MM-DDTHH:mm) */
@@ -176,6 +181,9 @@ export function AddEventModal({
   defaultShowOnPlanner = false,
 }: AddEventModalProps) {
   const isEditMode = !!event;
+  const t = useTranslations('calendar');
+  const tActions = useTranslations('common.actions');
+  const d = useDateLabels();
 
   // Fetch available calendars
   const { calendars } = useCalendarSources();
@@ -342,7 +350,7 @@ export function AddEventModal({
       : fromDisplayDateTime(endDate, endTimeStr, displayTimezone).toISOString();
 
     if (new Date(endISO) < new Date(startISO)) {
-      setError('End must be after start');
+      setError(t('eventForm.endBeforeStart'));
       return;
     }
 
@@ -351,19 +359,26 @@ export function AddEventModal({
 
     try {
       const recurring = !!recurrenceRule;
+
+      // An emptied field has to travel as an explicit null when editing. PATCH
+      // only touches keys that are present in the body, and JSON.stringify
+      // drops undefined ones, so sending undefined said "leave this alone":
+      // clearing a description, a location or a reminder never reached the
+      // server. On create there is nothing to clear, so undefined is right.
+      const cleared = isEditMode ? null : undefined;
       const payload: Record<string, unknown> = {
         title: title.trim(),
-        description: description.trim() || undefined,
-        location: location.trim() || undefined,
+        description: description.trim() || cleared,
+        location: location.trim() || cleared,
         startTime: startISO,
         endTime: endISO,
         allDay,
         recurring,
-        recurrenceRule: recurring ? recurrenceRule : undefined,
-        reminderMinutes: reminderMinutes !== '' ? Number(reminderMinutes) : undefined,
+        recurrenceRule: recurring ? recurrenceRule : cleared,
+        reminderMinutes: reminderMinutes !== '' ? Number(reminderMinutes) : cleared,
         showOnPlanner,
-        calendarSourceId: calendarSourceId || undefined,
-        color: eventColor || undefined,
+        calendarSourceId: calendarSourceId || cleared,
+        color: eventColor || cleared,
       };
 
       const url = isEditMode ? `/api/events/${event.id}` : '/api/events';
@@ -377,14 +392,14 @@ export function AddEventModal({
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to save event');
+        throw new Error(errorData.error || t('eventForm.saveFailed'));
       }
 
       const savedEvent = await response.json();
 
       if (savedEvent.warning) {
         toast({
-          title: 'Event saved locally',
+          title: t('eventForm.savedLocally'),
           description: savedEvent.warning,
           variant: 'warning',
         });
@@ -397,7 +412,7 @@ export function AddEventModal({
       onOpenChange(false);
     } catch (err) {
       console.error('Failed to save event:', err);
-      setError(err instanceof Error ? err.message : 'Failed to save event');
+      setError(err instanceof Error ? err.message : t('eventForm.saveFailed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -407,9 +422,9 @@ export function AddEventModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>{isEditMode ? 'Edit Event' : 'New Event'}</DialogTitle>
+          <DialogTitle>{t(isEditMode ? 'eventForm.titleEdit' : 'eventForm.titleNew')}</DialogTitle>
           <DialogDescription className="sr-only">
-            {isEditMode ? 'Update event details.' : 'Create a new calendar event.'}
+            {t(isEditMode ? 'eventForm.descriptionEdit' : 'eventForm.descriptionNew')}
           </DialogDescription>
         </DialogHeader>
 
@@ -418,7 +433,7 @@ export function AddEventModal({
           <Input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Add title"
+            placeholder={t('eventForm.titlePlaceholder')}
             className="text-base border-0 border-b rounded-none px-0 focus-visible:ring-0 focus-visible:border-primary"
             autoFocus
             required
@@ -433,7 +448,7 @@ export function AddEventModal({
                 onClick={(e) => (e.currentTarget.nextElementSibling as HTMLInputElement | null)?.showPicker?.()}
                 className="h-8 px-2.5 rounded-md text-sm font-medium hover:bg-muted transition-colors whitespace-nowrap"
               >
-                {startDate ? format(parseISO(startDate + 'T00:00:00'), 'EEE, MMM d') : 'Start date'}
+                {startDate ? d.weekdayMonthDay(parseISO(startDate + 'T00:00:00')) : t('eventForm.startDate')}
               </button>
               <input
                 type="date"
@@ -460,7 +475,7 @@ export function AddEventModal({
                   onClick={(e) => (e.currentTarget.nextElementSibling as HTMLInputElement | null)?.showPicker?.()}
                   className="h-8 px-2.5 rounded-md text-sm font-medium hover:bg-muted transition-colors whitespace-nowrap"
                 >
-                  {endDate ? format(parseISO(endDate + 'T00:00:00'), 'EEE, MMM d') : 'End date'}
+                  {endDate ? d.weekdayMonthDay(parseISO(endDate + 'T00:00:00')) : t('eventForm.endDate')}
                 </button>
                 <input
                   type="date"
@@ -485,7 +500,7 @@ export function AddEventModal({
             {/* All day toggle */}
             <div className="flex items-center gap-1.5 ml-1">
               <Switch id="event-all-day" checked={allDay} onCheckedChange={handleAllDayChange} />
-              <Label htmlFor="event-all-day" className="text-sm cursor-pointer select-none">All day</Label>
+              <Label htmlFor="event-all-day" className="text-sm cursor-pointer select-none">{t('allDay')}</Label>
             </div>
 
             {/* End date selector when all-day and same date (show explicit end date control) */}
@@ -496,7 +511,7 @@ export function AddEventModal({
                   onClick={(e) => (e.currentTarget.nextElementSibling as HTMLInputElement | null)?.showPicker?.()}
                   className="h-8 px-2.5 rounded-md text-sm font-medium hover:bg-muted transition-colors whitespace-nowrap text-muted-foreground"
                 >
-                  {endDate ? format(parseISO(endDate + 'T00:00:00'), 'EEE, MMM d') : 'End date'}
+                  {endDate ? d.weekdayMonthDay(parseISO(endDate + 'T00:00:00')) : t('eventForm.endDate')}
                 </button>
                 <input
                   type="date"
@@ -513,7 +528,7 @@ export function AddEventModal({
           {/* Calendar Selection */}
           <Select value={calendarSourceId} onValueChange={setCalendarSourceId}>
             <SelectTrigger className="w-full">
-              <SelectValue placeholder="Select a calendar" />
+              <SelectValue placeholder={t('eventForm.selectCalendar')} />
             </SelectTrigger>
             <SelectContent>
               {writableCalendars.map((cal) => (
@@ -549,7 +564,7 @@ export function AddEventModal({
               outward — and only once such an account actually exists. */}
           {writableCalendars.some((c) => c.provider === 'google') && (
             <p className="text-xs text-muted-foreground">
-              Local calendars stay on this dashboard. Connected calendars (like Google) sync both ways.
+              {t('eventForm.syncHint')}
             </p>
           )}
 
@@ -560,7 +575,7 @@ export function AddEventModal({
             className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             {showMore ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            {showMore ? 'Less options' : 'More options'}
+            {t(showMore ? 'eventForm.lessOptions' : 'eventForm.moreOptions')}
           </button>
 
           {showMore && (
@@ -571,7 +586,7 @@ export function AddEventModal({
                 <Input
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
-                  placeholder="Add location"
+                  placeholder={t('eventForm.locationPlaceholder')}
                   className="flex-1"
                 />
               </div>
@@ -582,7 +597,7 @@ export function AddEventModal({
                 <Textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Add description"
+                  placeholder={t('eventForm.descriptionPlaceholder')}
                   rows={2}
                   className="flex-1"
                 />
@@ -594,12 +609,12 @@ export function AddEventModal({
                 onValueChange={(v) => setRecurrenceRule(v === '__none__' ? '' : v)}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Does not repeat" />
+                  <SelectValue placeholder={t('eventForm.recurrence.none')} />
                 </SelectTrigger>
                 <SelectContent>
                   {RECURRENCE_OPTIONS.map((opt) => (
                     <SelectItem key={opt.value || '__none__'} value={opt.value || '__none__'}>
-                      {opt.label}
+                      {t(`eventForm.recurrence.${opt.labelKey}`)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -611,13 +626,13 @@ export function AddEventModal({
                 onValueChange={(value) => setReminderMinutes(value === 'none' ? '' : Number(value))}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="No reminder" />
+                  <SelectValue placeholder={t('eventForm.noReminder')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No reminder</SelectItem>
+                  <SelectItem value="none">{t('eventForm.noReminder')}</SelectItem>
                   {REMINDER_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={String(option.value)}>
-                      {option.label}
+                      {t(`eventForm.reminder.${option.unitKey}`, { count: option.count })}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -648,16 +663,16 @@ export function AddEventModal({
               onClick={() => onOpenChange(false)}
               disabled={isSubmitting}
             >
-              Cancel
+              {tActions('cancel')}
             </Button>
             <Button type="submit" disabled={!title.trim() || !startDate || !endDate || (!allDay && (!startTimeStr || !endTimeStr)) || isSubmitting}>
               {isSubmitting ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
+                  {t('eventForm.saving')}
                 </>
               ) : (
-                isEditMode ? 'Save' : 'Save'
+                tActions('save')
               )}
             </Button>
           </div>

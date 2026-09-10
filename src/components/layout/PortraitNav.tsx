@@ -12,6 +12,7 @@ import * as React from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { scopedHref, isNavActive } from '@/lib/utils/dashboardScope';
 import { User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslations } from 'next-intl';
@@ -36,10 +37,7 @@ export function PortraitNav({ user, onLogin, onLogout, uiHidden }: PortraitNavPr
   const navItems = filterNavItems(ALL_NAV_ITEMS);
   const t = useTranslations('common');
 
-  const isActive = (href: string) => {
-    if (href === '/') return pathname === '/';
-    return pathname.startsWith(href);
-  };
+  const isActive = (href: string) => isNavActive(href, pathname);
 
   return (
     <nav className={cn(
@@ -54,7 +52,7 @@ export function PortraitNav({ user, onLogin, onLogout, uiHidden }: PortraitNavPr
           return (
             <Link
               key={item.href}
-              href={item.href}
+              href={scopedHref(item.href, pathname)}
               className={cn(
                 'flex flex-col items-center gap-1 py-2 px-4 min-w-[72px] shrink-0 transition-colors',
                 active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
@@ -99,8 +97,8 @@ export function PortraitNav({ user, onLogin, onLogout, uiHidden }: PortraitNavPr
             </>
           ) : (
             <>
-              <User className="h-7 w-7 text-red-500" />
-              <span className="text-xs font-medium text-red-500">Login</span>
+              <User className="h-7 w-7 text-destructive" />
+              <span className="text-xs font-medium text-destructive">Login</span>
             </>
           )}
         </button>

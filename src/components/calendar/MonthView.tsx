@@ -19,6 +19,7 @@ import { useWidgetBgOverride } from '@/components/widgets/WidgetContainer';
 import { hexToRgba } from '@/lib/utils/color';
 import { useWeekStartsOn } from '@/lib/hooks/useWeekStartsOn';
 import { DAYS_SHORT_ARRAY } from '@/lib/constants/days';
+import { useDateLabels } from '@/lib/hooks/useDateLabels';
 import type { CalendarEvent } from '@/types/calendar';
 import { seasonalPalettes } from '@/lib/themes/seasonalThemes';
 import { CardHeightProbe, DayOverflowPopover, DroppableOverlayCell, InlineCalendarEvent, SpanningEventRows, useDayDroppable, type OverlayItemRef } from './cells';
@@ -65,6 +66,7 @@ export function MonthView({
   showMonthHeader = true,
 }: MonthViewProps) {
   const { displayTimezone } = useTimeFormat();
+  const d = useDateLabels();
   const displayNow = toDisplayDate(new Date(), displayTimezone);
   const cards = displayMode === 'cards';
   const { weekStartsOn } = useWeekStartsOn();
@@ -88,12 +90,24 @@ export function MonthView({
   }
 
   const numWeeks = Math.ceil(days.length / 7);
-  const dayNames = [...DAYS_SHORT_ARRAY.slice(weekStartsOn), ...DAYS_SHORT_ARRAY.slice(0, weekStartsOn)];
+  // Sunday-first indices rotated to the configured week start; the names
+  // themselves come from the interface language, not DAYS_SHORT_ARRAY.
+  const dayIndices = Array.from({ length: 7 }, (_, i) => (i + weekStartsOn) % DAYS_SHORT_ARRAY.length);
   // Scope the wide event list to this month grid's visible range once, so the
   // spanning + per-day filters iterate ~40 events instead of thousands.
   const scopedEvents = eventsOverlappingRange(events, calendarStart, calendarEnd);
+  // Every all-day event goes in the lane band, not just the multi-day ones.
+  //
+  // Lanes are what stop a bar moving up and down as it crosses the week, and a
+  // single-day event that sits outside them cannot fill the space one leaves
+  // above itself. Put both kinds in the same system and the packing does it:
+  // if a three-day event took lane 1 because lane 0 was busy on its first day,
+  // a single-day event starting on its second day takes lane 0, because lane 0
+  // is free by then.
+  //
+  // A single-day event simply occupies one column, so it needs no special case.
   const spanningEvents = scopedEvents
-    .filter((event) => eventSpansMultipleDisplayDays(
+    .filter((event) => event.allDay || eventSpansMultipleDisplayDays(
       event.startTime,
       event.endTime,
       event.allDay,
@@ -110,16 +124,16 @@ export function MonthView({
           className="shrink-0 text-center py-1 font-semibold text-sm text-white rounded-t-md shadow-sm"
           style={{ backgroundColor: monthColor }}
         >
-          {format(currentDate, 'MMMM yyyy')}
+          {d.monthYear(currentDate)}
         </div>
       )}
       <div className="shrink-0 grid grid-cols-7 border-b border-border/70">
-        {dayNames.map((name) => (
+        {dayIndices.map((index) => (
           <div
-            key={name}
+            key={index}
             className="text-center text-xs font-medium text-muted-foreground py-1.5"
           >
-            {name}
+            {d.weekdayByIndex(index)}
           </div>
         ))}
       </div>
@@ -228,6 +242,7 @@ function MonthDayCell({
   const today = isSameDay(date, toDisplayDate(new Date(), displayTimezone));
   const droppable = useDayDroppable({ date, enabled: cards && enableDnd });
 
+
   return (
     <div
       ref={cards && enableDnd ? droppable.setNodeRef : undefined}
@@ -241,9 +256,10 @@ function MonthDayCell({
       )}
       style={cellBgStyle}
     >
-      <div className="flex h-7 shrink-0 items-center justify-center">
+      <div className="flex shrink-0 items-center justify-center h-[var(--daynum-row)]">
         <span className={cn(
-          'inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs font-medium',
+          'inline-flex items-center justify-center rounded-full px-1 font-medium',
+          'h-[var(--daynum-box)] min-w-[var(--daynum-box)] text-[length:var(--daynum-size)]',
           today && 'bg-primary font-bold text-primary-foreground',
           !today && isPast && 'text-muted-foreground',
           !today && !isSameMonth(date, currentDate) && 'text-muted-foreground/55',
@@ -257,6 +273,7 @@ function MonthDayCell({
         rowDates={rowDates}
         events={spanningEvents}
         onEventClick={onEventClick}
+        cards={cards}
       />
 
       {cards ? (
@@ -270,7 +287,9 @@ function MonthDayCell({
           onItemClick={onItemClick}
         />
       ) : (
-        <ul className="flex-1 overflow-y-auto space-y-0.5 list-none m-0 px-1 pb-1 pt-0">
+        // Row gap follows the theme's events mode; the fallback is the
+        // 0.125rem that space-y-0.5 used to hard-code.
+        <ul className="flex-1 overflow-y-auto list-none m-0 px-1 pb-1 pt-0 flex flex-col gap-[var(--event-gap,0.125rem)]">
           {dayEvents.map((event) => (
             <li key={event.id}>
               <InlineCalendarEvent event={event} onClick={onEventClick} />
@@ -347,7 +366,7 @@ function DayCardsCell({
             onEventClick(event);
           }}
           className={cn(
-            'w-full text-left text-[10px] px-1 py-0.5 rounded bg-card/85 backdrop-blur-sm border border-border/40 shadow-sm truncate hover:bg-card transition-colors leading-tight',
+            'w-full text-left text-[10px] px-1 py-0.5 rounded-md bg-card/85 backdrop-blur-sm border border-border/40 shadow-sm truncate hover:bg-card transition-colors leading-tight',
             isCalendarEventPast(
               event.startTime,
               event.endTime,

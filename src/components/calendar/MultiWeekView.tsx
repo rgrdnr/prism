@@ -15,7 +15,7 @@ import { hexToRgba } from '@/lib/utils/color';
 import { useWeekStartsOn } from '@/lib/hooks/useWeekStartsOn';
 import { seasonalPalettes } from '@/lib/themes/seasonalThemes';
 import type { CalendarEvent } from '@/types/calendar';
-import { CardHeightProbe, DayOverflowPopover, DroppableOverlayCell, InlineCalendarEvent, SpanningEventRows, WeekItemCard, useDayDroppable, weatherIcon, type OverlayItemRef } from './cells';
+import { CardHeightProbe, DayOverflowPopover, DroppableOverlayCell, InlineCalendarEvent, SpanningEventRows, WeekItemCard, cardTitleClasses, useDayDroppable, weatherIcon, type OverlayItemRef } from './cells';
 
 /** HSL color for the seasonal accent of the cell's month. */
 function getMonthAccentColor(date: Date): string {
@@ -27,6 +27,8 @@ import type { DayBucket } from '@/lib/hooks/useWeekViewData';
 import { useTimeFormat } from '@/components/providers';
 import { eventOccursOnDisplayDay, eventSpansMultipleDisplayDays, formatDisplayTime, isCalendarEventPast, toDisplayDate } from '@/lib/utils/timeFormat';
 import { eventsOverlappingRange } from '@/lib/utils/calendarRange';
+import { useDateLabels } from '@/lib/hooks/useDateLabels';
+import { useTranslations } from 'next-intl';
 
 export interface MultiWeekViewProps {
   currentDate: Date;
@@ -90,8 +92,11 @@ export function MultiWeekView({
   // Scope the wide event list to the visible weeks once, so the spanning +
   // per-day filters iterate the local slice instead of thousands of events.
   const scopedEvents = eventsOverlappingRange(events, weekStart, addDays(weekStart, weekCount * 7));
+  // Every all-day event goes in the lane band, not just the multi-day ones, so
+  // a single-day event can take a lane a multi-day one leaves free above
+  // itself. Same rule as MonthView; see the note there.
   const spanningEvents = scopedEvents
-    .filter((event) => eventSpansMultipleDisplayDays(
+    .filter((event) => event.allDay || eventSpansMultipleDisplayDays(
       event.startTime,
       event.endTime,
       event.allDay,
@@ -199,6 +204,8 @@ function DayCell({
   showAll?: boolean;
 }) {
   const { timeFormat, displayTimezone } = useTimeFormat();
+  const t = useTranslations('calendar');
+  const d = useDateLabels();
   const cards = displayMode === 'cards';
   const fallback = compact ? FALLBACK_VISIBLE_CARDS_COMPACT : FALLBACK_VISIBLE_CARDS;
   const spanningEventSet = new Set(spanningEvents);
@@ -261,12 +268,12 @@ function DayCell({
   const today = isSameDay(date, displayNow);
   const tomorrow = isSameDay(date, addDays(displayNow, 1));
   const dayLabel = today
-    ? 'Today'
+    ? t('today')
     : tomorrow
-      ? 'Tomorrow'
+      ? t('tomorrow')
       : compact
-        ? format(date, 'EEE')
-        : format(date, 'EEEE');
+        ? d.weekdayShort(date)
+        : d.weekdayLong(date);
   const dayWeather = bucket?.weather;
   const cardSize = compact ? 'sm' : 'md';
   const monthAccent = getMonthAccentColor(date);
@@ -307,7 +314,12 @@ function DayCell({
         )}
       >
         <div className="flex items-baseline gap-1.5 min-w-0">
-          <span className={cn('font-bold leading-none', compact ? 'text-base' : 'text-xl')}>
+          {/* The compact branch is the layout saying this cell is small, which
+              stays the layout's call. The roomy branch is the theme's. */}
+          <span className={cn(
+            'font-bold leading-none',
+            compact ? 'text-base' : 'text-[length:var(--daynum-large)]',
+          )}>
             {format(date, 'd')}
           </span>
           <span
@@ -338,6 +350,12 @@ function DayCell({
         events={spanningEvents}
         onEventClick={onEventClick}
         compact={compact}
+        cards={cards}
+        // Matches this view's event list below (line ~364).
+        padX={compact ? 'px-1' : 'px-1.5'}
+        // Matches the stripe on this view's cards: sm is 3px, md is 5px.
+        stripePx={compact ? 3 : 5}
+        titleClass={cardTitleClasses(cardSize)}
       />
 
       {/* Cards / events. In cards mode, meals render at the top of the day's
@@ -345,7 +363,9 @@ function DayCell({
       <div
         ref={cards ? cellRef : undefined}
         className={cn(
-          cards ? 'flex flex-col gap-1 flex-1 min-h-0 overflow-hidden' : 'space-y-0.5',
+          cards
+            ? 'flex flex-col gap-1 flex-1 min-h-0 overflow-hidden'
+            : 'flex flex-col gap-[var(--event-gap)]',
           compact ? 'px-1 pb-1' : 'px-1.5 pb-1.5',
         )}
       >
@@ -363,8 +383,12 @@ function DayCell({
                   layout="column"
                   stripeColor={event.color}
                   title={event.title}
-                  timeLabel={event.allDay ? 'All day' : formatDisplayTime(event.startTime, timeFormat, {}, displayTimezone)}
-                  subtitle={event.location || event.calendarName}
+                  timeLabel={event.allDay ? t('allDay') : formatDisplayTime(event.startTime, timeFormat, {}, displayTimezone)}
+                  // No third row at all. A location is worth knowing, but not at
+                  // the cost of a card that is three lines in one cell and two
+                  // in the next; the modal has it, and the grid is read from
+                  // across a room. Time and title only.
+                  subtitle={undefined}
                   onClick={() => onEventClick(event)}
                   dragId={draggable ? `event:${event.id}` : undefined}
                   subdued={isCalendarEventPast(

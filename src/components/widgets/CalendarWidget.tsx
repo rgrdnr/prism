@@ -12,17 +12,21 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { Calendar, Loader2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { Calendar, Loader2, AlertTriangle } from 'lucide-react';
+import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { isLightColor } from '@/lib/utils/color';
 import { deduplicateEvents } from '@/lib/utils/calendarDedup';
 import { WidgetContainer, useWidgetBgOverride } from './WidgetContainer';
 import { useCalendarEvents, useCalendarFilter, useCalendarNotes } from '@/lib/hooks';
+import { useDateLabels } from '@/lib/hooks/useDateLabels';
 import { useDayBucketsForRange } from '@/lib/hooks/useDayBucketsForRange';
 import { useWeekMutations } from '@/lib/hooks/useWeekMutations';
 import { useAuth } from '@/components/providers';
 import { useWeekStartsOn } from '@/lib/hooks/useWeekStartsOn';
 import { useCalendarWidgetPrefs, VIEW_OPTIONS, CalendarPrefsScopeContext } from '@/lib/hooks/useCalendarWidgetPrefs';
+import { useCalendarSyncHealth } from '@/lib/hooks/useCalendarSyncHealth';
 import { CalendarWidgetControls } from './CalendarWidgetControls';
 import type { CalendarEvent } from '@/types/calendar';
 export type { CalendarEvent };
@@ -56,6 +60,8 @@ export const CalendarWidget = React.memo(function CalendarWidget({
   gridH = 2,
 }: CalendarWidgetProps) {
   const { activeUser } = useAuth();
+  const t = useTranslations('calendar');
+  const formatDayHeader = useDayHeaderFormatter();
   const { weekStartsOn } = useWeekStartsOn();
   const bgOverride = useWidgetBgOverride();
   const transparentMode = bgOverride?.hasCustomBg === true;
@@ -72,6 +78,17 @@ export const CalendarWidget = React.memo(function CalendarWidget({
     availableViews, effectiveView, resolvedView, resolvedWeekCount, viewUnavailable,
     goToToday, goToPrevious, goToNext,
   } = useCalendarWidgetPrefs(gridW, gridH, useContext(CalendarPrefsScopeContext));
+
+  // Sync stopping is worth knowing about from across the room — a stale
+  // calendar looks exactly like a quiet week. Not on the screensaver, though:
+  // nobody is standing at it, and the badge would just be a permanent blemish
+  // on the wallpaper. The screensaver renders its own copy of this widget over
+  // a still-mounted dashboard, so switching the check off here also keeps that
+  // copy from doubling the polling for a badge it will never draw.
+  const prefsScope = useContext(CalendarPrefsScopeContext);
+  const { needsReauth, stalled: syncPaused } = useCalendarSyncHealth({
+    enabled: prefsScope !== 'screensaver',
+  });
 
   const { events: apiEvents, loading: apiLoading, error: apiError, refresh: refreshEvents } = useCalendarEvents({ daysToShow: 60 });
   const { selectedCalendarIds, toggleCalendar, filterEvents, calendarGroups } = useCalendarFilter();
@@ -179,7 +196,7 @@ export const CalendarWidget = React.memo(function CalendarWidget({
         await moveEvent(itemId, ev.startTime, ev.endTime, targetBucket.date);
       }
     } catch (err) {
-      setMoveError(err instanceof Error ? err.message : 'Failed to move item');
+      setMoveError(err instanceof Error ? err.message : t('errors.moveFailed'));
     }
   };
 
@@ -219,7 +236,7 @@ export const CalendarWidget = React.memo(function CalendarWidget({
             : transparentMode ? 'text-current/70 hover:text-current' : 'bg-muted text-muted-foreground hover:bg-accent'
         )}
       >
-        All
+        {t('toolbar.all')}
       </button>
       {calendarGroups.map((group) => (
         <button
@@ -246,7 +263,7 @@ export const CalendarWidget = React.memo(function CalendarWidget({
 
   return (
     <WidgetContainer
-      title="Calendar"
+      title={t('title')}
       titleHref={titleHref}
       icon={<Calendar className="h-4 w-4" />}
       size="large"
@@ -281,9 +298,22 @@ export const CalendarWidget = React.memo(function CalendarWidget({
       className={className}
     >
       {calendarChips}
+      {syncPaused && (
+        <Link
+          href="/calendar?manage=calendars"
+          className="flex items-center justify-center gap-1 text-[10px] text-warning py-1 bg-warning/10 rounded mb-1 hover:bg-warning/20"
+          title="Sync has stopped for one or more calendars — reconnect to resume"
+        >
+          <AlertTriangle className="h-3 w-3 shrink-0" />
+          {needsReauth === 1 ? 'Sync paused — reconnect' : `Sync paused on ${needsReauth} calendars — reconnect`}
+        </Link>
+      )}
+
       {viewUnavailable && (
         <div className="text-[10px] text-muted-foreground text-center py-1 bg-muted/50 rounded mb-1">
-          Resize widget for {VIEW_OPTIONS.find(v => v.value === viewType)?.label} view
+          {t('toolbar.resizeForView', {
+            view: t(`views.${VIEW_OPTIONS.find((v) => v.value === viewType)?.labelKey ?? 'agenda'}`),
+          })}
         </div>
       )}
 
@@ -409,9 +439,13 @@ export const CalendarWidget = React.memo(function CalendarWidget({
   );
 });
 
-function formatDayHeader(date: Date): string {
-  const dayName = format(date, 'EEEE, MMMM d, yyyy');
-  if (isToday(date)) return `Today - ${dayName}`;
-  if (isTomorrow(date)) return `Tomorrow - ${dayName}`;
-  return dayName;
+function useDayHeaderFormatter(): (date: Date) => string {
+  const t = useTranslations('calendar');
+  const d = useDateLabels();
+  return (date: Date) => {
+    const dayName = d.fullDate(date);
+    if (isToday(date)) return t('dayHeader', { label: t('today'), date: dayName });
+    if (isTomorrow(date)) return t('dayHeader', { label: t('tomorrow'), date: dayName });
+    return dayName;
+  };
 }
