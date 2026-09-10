@@ -5,15 +5,26 @@
  * Prism treats it as its own internal REST API and never talks to
  * Dispatcharr directly.
  *
- * DISPATCHARR_NOW_URL is almost always a private LAN address (that's where a
- * self-hosted Dispatcharr box lives), so every call goes through safeFetch()
- * — same as src/lib/integrations/immich.ts — which requires the operator to
- * list that host in PRISM_ALLOWED_INTERNAL_HOSTS (see .env.example). That's
- * the existing, sanctioned way Prism allows a trusted self-hosted LAN
- * service, not a special case for this feature.
+ * The base URL is editable from Settings (stored in the `settings` table,
+ * same mechanism as the WiFi config) so switching hosts doesn't need an app
+ * restart. DISPATCHARR_NOW_URL in the environment is only the fallback
+ * default when nothing's been saved yet.
+ *
+ * The URL is almost always a private LAN address (that's where a self-hosted
+ * Dispatcharr box lives), so every call goes through safeFetch() — same as
+ * src/lib/integrations/immich.ts — which requires the operator to list that
+ * host in PRISM_ALLOWED_INTERNAL_HOSTS (see .env.example) and restart. That
+ * allowlist stays env-only even though the URL itself doesn't: it's a
+ * security boundary the operator sets, not something a Settings form should
+ * be able to grant to itself.
  */
 
+import { eq } from 'drizzle-orm';
+import { db } from '@/lib/db/client';
+import { settings } from '@/lib/db/schema';
 import { safeFetch } from '@/lib/utils/safeFetch';
+
+export const DISPATCHARR_NOW_URL_SETTING_KEY = 'dispatcharrNowUrl';
 
 export interface DispatcharrNowInstance {
   id: string;
@@ -36,13 +47,20 @@ export class DispatcharrNowUnconfiguredError extends Error {
   }
 }
 
-function baseUrl(): string | null {
-  const url = process.env.DISPATCHARR_NOW_URL?.trim();
-  return url ? url.replace(/\/+$/, '') : null;
+async function resolveBaseUrl(): Promise<string | null> {
+  try {
+    const [row] = await db.select().from(settings).where(eq(settings.key, DISPATCHARR_NOW_URL_SETTING_KEY));
+    const stored = typeof row?.value === 'string' ? row.value.trim() : '';
+    if (stored) return stored.replace(/\/+$/, '');
+  } catch {
+    // settings table unreachable — fall through to the env default
+  }
+  const envUrl = process.env.DISPATCHARR_NOW_URL?.trim();
+  return envUrl ? envUrl.replace(/\/+$/, '') : null;
 }
 
 async function callJson<T>(path: string, timeoutMs = 5000): Promise<T> {
-  const base = baseUrl();
+  const base = await resolveBaseUrl();
   if (!base) throw new DispatcharrNowUnconfiguredError();
 
   const controller = new AbortController();
@@ -79,7 +97,7 @@ export function logoProxyPath(instanceId: string, channelId: string): string {
 }
 
 export async function fetchLogo(instanceId: string, channelId: string): Promise<Response> {
-  const base = baseUrl();
+  const base = await resolveBaseUrl();
   if (!base) throw new DispatcharrNowUnconfiguredError();
   return safeFetch(`${base}${logoProxyPath(instanceId, channelId)}`);
 }

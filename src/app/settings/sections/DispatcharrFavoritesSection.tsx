@@ -63,6 +63,9 @@ export function DispatcharrFavoritesSection() {
   const [loading, setLoading] = useState(true);
   const [unconfigured, setUnconfigured] = useState(false);
 
+  const [companionUrl, setCompanionUrl] = useState('');
+  const [savingUrl, setSavingUrl] = useState(false);
+
   const [instances, setInstances] = useState<Instance[]>([]);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [selectedInstanceId, setSelectedInstanceId] = useState<string>('');
@@ -93,6 +96,47 @@ export function DispatcharrFavoritesSection() {
   }, []);
 
   useEffect(() => { fetchFavorites(); }, [fetchFavorites]);
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const value = data?.settings?.dispatcharrNowUrl;
+        if (typeof value === 'string') setCompanionUrl(value);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSaveUrl = async () => {
+    setSavingUrl(true);
+    try {
+      const saveRes = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'dispatcharrNowUrl', value: companionUrl.trim() }),
+      });
+      if (!saveRes.ok) throw new Error('save failed');
+
+      const checkRes = await fetch('/api/dispatcharr-favorites/instances');
+      if (checkRes.ok) {
+        const data = await checkRes.json();
+        const count = data.instances?.length ?? 0;
+        toast({ title: 'Saved', description: `Connected — found ${count} instance${count === 1 ? '' : 's'}.` });
+        setUnconfigured(false);
+        fetchFavorites();
+      } else {
+        toast({
+          title: 'Saved, but could not connect',
+          description: "Check the URL and that its host is in PRISM_ALLOWED_INTERNAL_HOSTS (server env, needs a restart).",
+          variant: 'destructive',
+        });
+      }
+    } catch {
+      toast({ title: 'Failed to save', variant: 'destructive' });
+    } finally {
+      setSavingUrl(false);
+    }
+  };
 
   const openAddDialog = async () => {
     setShowAddDialog(true);
@@ -210,6 +254,29 @@ export function DispatcharrFavoritesSection() {
 
       <Card>
         <CardHeader>
+          <CardTitle className="text-lg">Companion Server</CardTitle>
+          <CardDescription>
+            Base URL of your dispatcharr-now service. Its host also needs to be in{' '}
+            <code>PRISM_ALLOWED_INTERNAL_HOSTS</code> (server environment — requires a restart the
+            first time you point at a new host).
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2">
+            <Input
+              placeholder="http://192.168.0.100:8790"
+              value={companionUrl}
+              onChange={(e) => setCompanionUrl(e.target.value)}
+            />
+            <Button onClick={handleSaveUrl} disabled={savingUrl || !companionUrl.trim()}>
+              {savingUrl ? 'Saving...' : 'Save'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-lg">Favorite Channels</CardTitle>
@@ -260,8 +327,8 @@ export function DispatcharrFavoritesSection() {
 
           {unconfigured ? (
             <p className="text-sm text-muted-foreground">
-              Can&apos;t reach the TV service. Make sure <code>DISPATCHARR_NOW_URL</code> is set
-              in Prism&apos;s environment and dispatcharr-now is running.
+              Can&apos;t reach the TV service. Set the Companion Server URL above and make sure
+              dispatcharr-now is running.
             </p>
           ) : (
             <div className="space-y-3">
