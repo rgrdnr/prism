@@ -274,6 +274,21 @@ export const createBusRouteSchema = z.object({
 
 export const updateBusRouteSchema = createBusRouteSchema.partial();
 
+// DISPATCHARR FAVORITE SCHEMAS
+
+export const createDispatcharrFavoriteSchema = z.object({
+  instanceId: z.string().min(1).max(32),
+  channelUuid: z.string().min(1).max(64),
+  channelId: z.string().min(1).max(32),
+  channelName: z.string().min(1).max(255),
+  channelNumber: z.string().max(20).optional(),
+  logoId: z.string().max(32).optional(),
+});
+
+export const reorderDispatcharrFavoritesSchema = z.array(
+  z.object({ id: uuidSchema, sortOrder: z.number().int().min(0) })
+);
+
 // CALENDAR NOTE SCHEMAS
 
 export const upsertCalendarNoteSchema = z.object({

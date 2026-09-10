@@ -15,6 +15,7 @@ const PointsWidget = lazy(() => import('./PointsWidget').then(m => ({ default: m
 const WishesWidget = lazy(() => import('./WishesWidget').then(m => ({ default: m.WishesWidget })));
 const BusTrackingWidget = lazy(() => import('./BusTrackingWidget').then(m => ({ default: m.BusTrackingWidget })));
 const TravelWidget = lazy(() => import('./TravelWidget').then(m => ({ default: m.TravelWidget })));
+const DispatcharrFavoritesWidget = lazy(() => import('./DispatcharrFavoritesWidget').then(m => ({ default: m.DispatcharrFavoritesWidget })));
 
 export interface WidgetProps {
   className?: string;
@@ -165,6 +166,15 @@ export const WIDGET_REGISTRY: Record<string, WidgetRegistryEntry> = {
     minH: 8,
     defaultW: 12,
     defaultH: 12,
+  },
+  dispatcharrFavorites: {
+    component: DispatcharrFavoritesWidget,
+    label: 'TV Favorites',
+    icon: 'Tv',
+    minW: 8,
+    minH: 5,
+    defaultW: 12,
+    defaultH: 8,
   },
 };
 

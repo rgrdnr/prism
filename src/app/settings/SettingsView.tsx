@@ -26,6 +26,7 @@ import {
   KeyboardIcon,
   Monitor,
   Wand2,
+  Tv,
 } from 'lucide-react';
 import { PrismIcon } from '@/components/ui/PrismIcon';
 import { cn } from '@/lib/utils';
@@ -47,6 +48,7 @@ import { PhotosSettingsSection } from './sections/PhotosSettingsSection';
 import { BabysitterInfoSection } from './sections/BabysitterInfoSection';
 import { BackupSection } from './sections/BackupSection';
 import { BusTrackingSection } from './sections/BusTrackingSection';
+import { DispatcharrFavoritesSection } from './sections/DispatcharrFavoritesSection';
 import { InputSection } from './sections/InputSection';
 import { FeaturesSection } from './sections/FeaturesSection';
 import { TelemetryCard } from './sections/TelemetryCard';
@@ -193,6 +195,7 @@ export function SettingsView() {
     { id: 'display', label: 'Appearance', icon: Palette },
     { id: 'photos', label: 'Photos', icon: ImageIcon },
     { id: 'bus', label: 'Bus Tracking', icon: Bus },
+    { id: 'dispatcharr', label: 'TV Favorites', icon: Tv },
     { id: 'input', label: 'Input', icon: KeyboardIcon },
     { id: 'babysitter', label: 'Babysitter Info', icon: Baby },
     { id: 'features', label: 'Features', icon: ToggleLeft },
@@ -274,6 +277,7 @@ export function SettingsView() {
               {activeSection === 'displays' && <DisplaysSection />}
               {activeSection === 'photos' && <PhotosSettingsSection />}
               {activeSection === 'bus' && <BusTrackingSection />}
+              {activeSection === 'dispatcharr' && <DispatcharrFavoritesSection />}
               {activeSection === 'babysitter' && <BabysitterInfoSection />}
               {activeSection === 'general' && <GeneralSection />}
               {activeSection === 'display' && <DisplaySection />}

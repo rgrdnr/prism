@@ -2001,3 +2001,36 @@ export const weeklyHabitChecksRelations = relations(weeklyHabitChecks, ({ one })
   }),
 }));
 
+// ─── DISPATCHARR FAVORITES ────────────────────────────────────────
+// Curated list of TV channels shown in the Dispatcharr Favorites widget.
+// instanceId/channelId/channelUuid are identifiers owned by a separate
+// dispatcharr-now companion service (its own instances.json store, not a
+// shared DB), so there's no FK relation to anything here.
+export const dispatcharrFavorites = pgTable('dispatcharr_favorites', {
+  id: uuid('id').defaultRandom().primaryKey(),
+
+  // dispatcharr-now's short instance id (8-char hex) — looks up the
+  // instance's base URL and backs the logo proxy.
+  instanceId: varchar('instance_id', { length: 32 }).notNull(),
+
+  // Dispatcharr's channel UUID — required to build the stream watchUrl.
+  channelUuid: varchar('channel_uuid', { length: 64 }).notNull(),
+
+  // Dispatcharr's numeric channel id — required for the logo lookup
+  // (keyed off this, not the uuid).
+  channelId: varchar('channel_id', { length: 32 }).notNull(),
+
+  channelName: varchar('channel_name', { length: 255 }).notNull(),
+  channelNumber: varchar('channel_number', { length: 20 }),
+  logoId: varchar('logo_id', { length: 32 }),
+
+  sortOrder: integer('sort_order').default(0).notNull(),
+
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  sortOrderIdx: index('dispatcharr_favorites_sort_order_idx').on(table.sortOrder),
+  instanceChannelIdx: uniqueIndex('dispatcharr_favorites_instance_channel_idx')
+    .on(table.instanceId, table.channelUuid),
+}));
+

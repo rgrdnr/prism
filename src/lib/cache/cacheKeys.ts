@@ -49,7 +49,8 @@ export type CacheEntity =
   | 'travel'
   | 'weekend'
   | 'weekly-planner-notes'
-  | 'weekly-habits';
+  | 'weekly-habits'
+  | 'dispatcharr-favorites';
 
 /**
  * Cross-entity invalidation graph.
