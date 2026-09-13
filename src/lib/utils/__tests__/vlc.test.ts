@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { isIOS, vlcHref } from '../vlc';
+import { isIOS, launchHref, getPreferredPlayer, setPreferredPlayer } from '../vlc';
 
 function setNavigator(overrides: { userAgent?: string; platform?: string; maxTouchPoints?: number }) {
   Object.defineProperty(navigator, 'userAgent', { value: overrides.userAgent ?? '', configurable: true });
@@ -41,18 +41,46 @@ describe('isIOS', () => {
   });
 });
 
-describe('vlcHref', () => {
+describe('launchHref', () => {
   const watchUrl = 'http://192.168.0.149:9090/proxy/ts/stream/abc-123?output_profile=1';
+  const channelName = 'NBC KGW';
 
-  it('uses vlc-x-callback:// on iOS', () => {
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('uses vlc-x-callback:// on iOS when VLC is preferred', () => {
     setNavigator({ userAgent: IPHONE_UA, platform: 'iPhone', maxTouchPoints: 5 });
-    expect(vlcHref(watchUrl)).toBe(
+    expect(launchHref(watchUrl, channelName)).toBe(
       `vlc-x-callback://x-callback-url/stream?url=${encodeURIComponent(watchUrl)}`
     );
   });
 
-  it('uses a bare vlc:// link everywhere else', () => {
+  it('uses a bare vlc:// link everywhere else when VLC is preferred', () => {
     setNavigator({ userAgent: DESKTOP_MAC_UA, platform: 'MacIntel', maxTouchPoints: 0 });
-    expect(vlcHref(watchUrl)).toBe(`vlc://${watchUrl}`);
+    expect(launchHref(watchUrl, channelName)).toBe(`vlc://${watchUrl}`);
+  });
+
+  it('uses a channels:// deep link by channel name when Channels is preferred, regardless of platform', () => {
+    setPreferredPlayer('channels');
+    setNavigator({ userAgent: DESKTOP_MAC_UA, platform: 'MacIntel', maxTouchPoints: 0 });
+    expect(launchHref(watchUrl, channelName)).toBe(
+      `channels://play/channel/${encodeURIComponent(channelName)}`
+    );
+  });
+});
+
+describe('getPreferredPlayer / setPreferredPlayer', () => {
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('defaults to vlc when nothing is stored', () => {
+    expect(getPreferredPlayer()).toBe('vlc');
+  });
+
+  it('persists and reflects the chosen player', () => {
+    setPreferredPlayer('channels');
+    expect(getPreferredPlayer()).toBe('channels');
   });
 });

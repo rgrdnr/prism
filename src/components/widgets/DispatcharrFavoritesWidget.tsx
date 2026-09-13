@@ -6,7 +6,7 @@ import { Tv } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WidgetContainer, WidgetEmpty } from './WidgetContainer';
 import { useVisibilityPolling } from '@/lib/hooks/useVisibilityPolling';
-import { vlcHref } from '@/lib/utils/vlc';
+import { launchHref } from '@/lib/utils/vlc';
 
 interface FavoriteChannel {
   id: string;
@@ -67,7 +67,7 @@ export const DispatcharrFavoritesWidget = React.memo(function DispatcharrFavorit
               return (
                 <a
                   key={channel.id}
-                  href={channel.watchUrl ? vlcHref(channel.watchUrl) : undefined}
+                  href={channel.watchUrl ? launchHref(channel.watchUrl, channel.channelName) : undefined}
                   aria-disabled={disabled}
                   onClick={(e) => { if (disabled) e.preventDefault(); }}
                   className={cn(

@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from '@/components/ui/use-toast';
+import { getPreferredPlayer, setPreferredPlayer, PLAYER_LABELS, type Player } from '@/lib/utils/vlc';
 
 interface Favorite {
   id: string;
@@ -65,6 +66,14 @@ export function DispatcharrFavoritesSection() {
 
   const [companionUrl, setCompanionUrl] = useState('');
   const [savingUrl, setSavingUrl] = useState(false);
+
+  // Per-device preference (localStorage, not synced across devices) —
+  // which app tapping a favorite launches on THIS device.
+  const [player, setPlayerState] = useState<Player>(getPreferredPlayer);
+  const handlePlayerChange = (value: Player) => {
+    setPreferredPlayer(value);
+    setPlayerState(value);
+  };
 
   const [instances, setInstances] = useState<Instance[]>([]);
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -248,9 +257,33 @@ export function DispatcharrFavoritesSection() {
       <div>
         <h2 className="text-2xl font-bold">TV Favorites</h2>
         <p className="text-muted-foreground">
-          Pick channels to show in the TV Favorites dashboard widget. Tapping one launches it in VLC.
+          Pick channels to show in the TV Favorites dashboard widget. Tapping one launches it in your
+          preferred player.
         </p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Player</CardTitle>
+          <CardDescription>
+            Which app tapping a favorite opens on this device. Channels only works for channels already
+            imported into a Channels DVR server (e.g. via M3U from this Dispatcharr instance), and only
+            from iOS/tvOS — it has no desktop deep link.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Select value={player} onValueChange={(v) => handlePlayerChange(v as Player)}>
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(PLAYER_LABELS) as Player[]).map((p) => (
+                <SelectItem key={p} value={p}>{PLAYER_LABELS[p]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
