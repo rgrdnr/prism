@@ -16,6 +16,7 @@ const WishesWidget = lazy(() => import('./WishesWidget').then(m => ({ default: m
 const BusTrackingWidget = lazy(() => import('./BusTrackingWidget').then(m => ({ default: m.BusTrackingWidget })));
 const TravelWidget = lazy(() => import('./TravelWidget').then(m => ({ default: m.TravelWidget })));
 const DispatcharrFavoritesWidget = lazy(() => import('./DispatcharrFavoritesWidget').then(m => ({ default: m.DispatcharrFavoritesWidget })));
+const WeeklyPlannerWidget = lazy(() => import('./WeeklyPlannerWidget').then(m => ({ default: m.WeeklyPlannerWidget })));
 
 export interface WidgetProps {
   className?: string;
@@ -176,6 +177,15 @@ export const WIDGET_REGISTRY: Record<string, WidgetRegistryEntry> = {
     defaultW: 12,
     defaultH: 8,
   },
+  weeklyPlanner: {
+    component: WeeklyPlannerWidget,
+    label: 'Weekly Planner',
+    icon: 'CalendarDays',
+    minW: 8,
+    minH: 8,
+    defaultW: 16,
+    defaultH: 14,
+  },
 };
 
 export const ALL_WIDGET_TYPES = Object.keys(WIDGET_REGISTRY);
@@ -190,6 +200,7 @@ export const SCREENSAVER_WIDGETS = [
   { id: 'chores', label: 'Chores' },
   { id: 'shopping', label: 'Shopping' },
   { id: 'meals', label: 'Meals' },
+  { id: 'weeklyPlanner', label: 'Weekly Planner' },
   { id: 'photos', label: 'Photos' },
   { id: 'wishes', label: 'Wishes' },
   { id: 'busTracking', label: 'Bus Tracker' },
