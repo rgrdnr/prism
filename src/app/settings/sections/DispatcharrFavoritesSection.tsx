@@ -297,7 +297,7 @@ export function DispatcharrFavoritesSection() {
         <CardContent>
           <div className="flex gap-2">
             <Input
-              placeholder="http://192.168.0.100:8790"
+              placeholder="http://<dispatcharr-host>:8790"
               value={companionUrl}
               onChange={(e) => setCompanionUrl(e.target.value)}
             />

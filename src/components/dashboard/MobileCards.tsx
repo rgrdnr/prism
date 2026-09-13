@@ -276,7 +276,7 @@ export function PointsCard({ data }: { data: DashData['points'] }) {
 export function PlannerCard() {
   return (
     <CardShell href="/planner" icon={<CalendarDays className="h-4 w-4 text-indigo-500" />} title="Planner">
-      <p className="text-xs text-muted-foreground">This week's meals, activities & goals</p>
+      <p className="text-xs text-muted-foreground">This week&apos;s meals, activities & goals</p>
     </CardShell>
   );
 }
