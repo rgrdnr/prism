@@ -68,6 +68,7 @@ ALLOWLIST=(
   "npmjs.com"
   "drizzle.team"
   "tailwindcss.com"
+  "getchannels.com"
   "nextjs.org"
   "vercel.com"
   "vercel.app"
