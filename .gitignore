@@ -13,6 +13,11 @@
 .dev.vars
 .claude/settings.local.json
 
+# Per-machine git hooks. .husky/pre-commit and friends call these when they
+# exist, so a checkout can add its own checks without the repository carrying
+# them for everyone.
+.husky/local/
+
 # Dependencies
 node_modules/
 
@@ -144,3 +149,15 @@ transcript*.json
 lighthouse-*
 /public/twemoji/
 /public/maplibre/
+
+# Python bytecode from scripts/
+__pycache__/
+
+# A local-only config file that must never be committed. Named here because
+# the cost of committing one by accident is higher than the cost of a line.
+prism-pii-denylist.txt
+
+# UI-audit output. board.html base64-inlines every screenshot into one
+# self-contained file, so a local run against a real instance would otherwise
+# leave a committable artifact no text scanner can read.
+e2e/ui-audit-artifacts/

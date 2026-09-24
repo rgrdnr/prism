@@ -1,0 +1,107 @@
+name: Repo hygiene
+
+# What the project itself needs checked on every change, and nothing more.
+#
+# This file used to run a second set of checks that depended on inputs no fork
+# and no contributor could supply. They gated everybody and could pass for
+# nobody else, so they have moved out of this repository entirely.
+#
+# What remains is what a fork actually benefits from. A committed credential is
+# every self-hoster's problem, and docs/demos/ is published to the docs site
+# where no text scanner can read what a screenshot contains.
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: repo-hygiene-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene:
+    name: Repo hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Full history: the screenshot step below diffs against the PR base, and
+      # the default depth of 1 does not contain it. A shallow checkout makes
+      # that diff fail, and a swallowed failure reads as "nothing changed",
+      # which is the one result this check must never produce.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+
+      # Two secret scanners, deliberately. Ours knows two shapes that are
+      # secrets because of who runs this instance, not because of how they look:
+      # a private LAN address (exempted under src/, where the SSRF guard names
+      # RFC1918 ranges legitimately) and a monitoring ping URL. No public
+      # catalogue ships either, and it never will.
+      - name: Secret-shape scan (project rules)
+        run: bash scripts/scan-secrets.sh
+
+      # And a maintained catalogue for the 485 shapes nobody here thought of.
+      # Pinned by version AND by the tarball's checksum: an unpinned scanner is
+      # a third party that can change what blocks your merges overnight.
+      #
+      # --no-validate matters. Validation is ON by default and confirms a
+      # finding by sending the candidate to the provider's API, which would
+      # mean this repository's contents leaving the runner to a third party on
+      # every push. A scan that has to publish the thing it found to tell you
+      # it found it is not a scan this project wants.
+      - name: Secret scan (Kingfisher, full history)
+        env:
+          KINGFISHER_VERSION: '2.4.0'
+          KINGFISHER_SHA256: 'fecee4c46e0303672c4db8be2050936ea8b16a8f204e38c4ba64f25d95e585ad'
+        run: |
+          curl -sSL -o kingfisher.tgz \
+            "https://github.com/mongodb/kingfisher/releases/download/v${KINGFISHER_VERSION}/kingfisher-linux-x64.tgz"
+          echo "${KINGFISHER_SHA256}  kingfisher.tgz" | sha256sum -c -
+          tar xzf kingfisher.tgz
+          # fetch-depth: 0 above, so this really is every commit. It takes
+          # seconds: the point of a maintained catalogue is finding the
+          # eleventh shape, and history is where an old one would still be.
+          ./kingfisher scan . \
+            --git-history full \
+            --no-validate \
+            --no-update-check \
+            --baseline-file .github/kingfisher-baseline.yml
+          rm -f kingfisher kingfisher.tgz CHECKSUM-linux-x64.txt
+          rm -rf notices
+          # Note for whoever reads a red run: kingfisher exits 200, not 1, when
+          # it finds something. Any non-zero fails the step, which is what we
+          # want; do not "fix" the odd number with `|| true`.
+
+      # Images are the one published surface no scanner here can read. Every
+      # text rule skips binaries outright, and docs/demos/ is rendered on the
+      # public docs site, so a single hand-taken screenshot of a real instance
+      # would publish names, events and photos past every control at once. The
+      # generated path (refresh-screenshots.yml, an ephemeral seeded database)
+      # is therefore the only way in, and this enforces that rather than
+      # trusting it.
+      - name: Screenshots may only arrive from the refresh workflow
+        if: github.event_name == 'pull_request' && github.head_ref != 'chore/refresh-screenshots'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # No `|| true`. If the comparison cannot be made, that is a failure of
+          # the check, not a pass: the first version of this step swallowed a
+          # "bad object" from a shallow checkout and reported clean.
+          if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "::error::Cannot resolve the PR base ($BASE), so docs/demos changes could not be checked."
+            exit 1
+          fi
+          # --diff-filter=d: deletions are always safe, and refusing them would
+          # block the very PR that removes an unwanted image.
+          changed=$(git diff --name-only --diff-filter=d "$BASE" "$HEAD" -- docs/demos/)
+          if [ -n "$changed" ]; then
+            echo "::error::This PR changes docs/demos/, which is published to the docs site and cannot be scanned for personal data."
+            printf '%s\n' "$changed" | sed 's/^/  /'
+            echo "Run the 'Refresh screenshots' workflow instead; it captures against a seeded database and opens its own PR."
+            exit 1
+          fi
+          echo "No docs/demos changes."

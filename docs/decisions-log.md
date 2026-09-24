@@ -27,7 +27,7 @@ Format per entry: what it was, why it's gone, and the specific lessons worth not
 
 **What it was:** Birthdays could only enter Prism through two hardcoded Google calendars: Google's generated contacts calendar, and any source whose *name contained "friends"*. Shipped in #296 as content-based detection across every provider.
 
-**Why the old design failed:** It worked for exactly one person — whoever happened to keep a calendar with that name. It was documented nowhere, so [discussion #292](https://github.com/sandydargoport/prism/discussions/292) had no answer to give. It also **under-collected by 25%** on the maintainer's own account, missing birthdays sitting on a shared calendar, a personal calendar and a "Family" calendar.
+**Why the old design failed:** It worked for exactly one person — whoever happened to keep a calendar with that name. It was documented nowhere, so [discussion #292](https://github.com/sandydargoport/prism/discussions/292) had no answer to give. Measured against a real multi-calendar account it **under-collected by 25%**, missing birthdays that sat on a shared calendar, on a personal one, and on a calendar named "Family".
 
 **Lessons worth not re-learning:**
 
@@ -58,7 +58,7 @@ Format per entry: what it was, why it's gone, and the specific lessons worth not
 
 **What it was:** A self-contained Model Context Protocol server under `.mcp/` exposing the Prism REST API as MCP tools (chores, tasks, events, shopping, messages, meals, goals, recipes, maintenance, points, weather, family), so AI clients (Claude Desktop, Cursor / VS Code Copilot Chat, Gemini CLI / Code Assist) can read and write family data over natural-language chat. Cherry-picked from an external contribution (since closed) and modernized before adoption.
 
-**Why it's gone:** Branch was stale (61 commits behind master) and never merged. Deleted during branch cleanup. **The work is worth resurrecting** if MCP access becomes a real ask — re-cut from commit `f870aeb` rather than from scratch.
+**Why it's gone:** Branch was stale (61 commits behind master) and never merged. Deleted during branch cleanup. **The work is worth resurrecting** if MCP access becomes a real ask — re-cut from the branch's last state (the commit no longer resolves; it predates the history rewrites) rather than from scratch.
 
 **Lessons / decisions worth keeping:**
 

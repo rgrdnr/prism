@@ -1,0 +1,7 @@
+# Nothing in the project itself checks a commit message. This exists so a
+# per-machine hook can: $1 is the path to the drafted message.
+#
+# Untracked and gitignored, like the other .husky/local hooks.
+if [ -x .husky/local/commit-msg ]; then
+  .husky/local/commit-msg "$@"
+fi

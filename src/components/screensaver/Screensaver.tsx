@@ -25,6 +25,8 @@ import { ScreensaverQuickSettings } from './ScreensaverQuickSettings';
 import { getEffect } from './effects';
 import { scaledDuration } from './screensaverPrefs';
 import { usePerformanceMode } from '@/lib/hooks/usePerformanceMode';
+import { setDisplayIdle } from '@/lib/hooks/useDisplayIdle';
+import { PollingScopeContext } from '@/lib/hooks/pollingScope';
 
 /**
  * Wrapper classes that make any dashboard widget legible as a screensaver
@@ -35,11 +37,11 @@ import { usePerformanceMode } from '@/lib/hooks/usePerformanceMode';
  */
 export const SCREENSAVER_WIDGET_CLASS =
   'h-full w-full ' +
-  '[&_*]:!bg-transparent [&_.bg-card]:!bg-white/10 [&_.border-border]:!border-white/20 ' +
+  '**:bg-transparent! [&_.bg-card]:bg-white/10! [&_.border-border]:border-white/20! ' +
   // Force white text for legibility over the photo — EXCEPT elements marked
   // data-keep-color (e.g. the birthdays "days until" urgency coloring), which
   // keep their own color but still get the shadow.
-  '[&_*:not([data-keep-color])]:!text-white [&_*]:[text-shadow:0_1px_4px_rgba(0,0,0,0.75)]';
+  '[&_*:not([data-keep-color])]:text-white! **:[text-shadow:0_1px_4px_rgba(0,0,0,0.75)]';
 
 // Re-export storage utilities for consumers
 export {
@@ -79,6 +81,14 @@ export function Screensaver() {
     usage: 'screensaver',
     orientation: autoOrientation ? effectiveOrientation : undefined,
   });
+  // Tell the polling layer the display is covered. On a wall-mounted screen
+  // this is the only pause signal that ever fires: document.hidden cannot,
+  // because the tab is never hidden. See useDisplayIdle.
+  useEffect(() => {
+    setDisplayIdle(isIdle);
+    return () => setDisplayIdle(false);
+  }, [isIdle]);
+
   const [visible, setVisible] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [fadingOut, setFadingOut] = useState(false);
@@ -116,7 +126,7 @@ export function Screensaver() {
 
   return (
     <div
-      className={`fixed inset-0 z-[9999] bg-black transition-opacity duration-1000 ${
+      className={`fixed inset-0 z-9999 bg-black transition-opacity duration-1000 ${
         visible ? 'opacity-100' : 'opacity-0'
       }`}
     >
@@ -134,7 +144,12 @@ export function Screensaver() {
         />
       )}
       <div className="pointer-events-none absolute inset-0 bg-black/40" />
-      <ScreensaverGrid />
+      {/* Scoped from out here rather than inside ScreensaverGrid: the grid
+          calls useDashboardData in its own body, which reads context from
+          where the grid SITS, not from what it renders. */}
+      <PollingScopeContext.Provider value="screensaver">
+        <ScreensaverGrid />
+      </PollingScopeContext.Provider>
       <ScreensaverQuickSettings />
     </div>
   );
@@ -331,11 +346,11 @@ function ScreensaverGrid() {
           shown={on}
           className={'h-full w-full prism-screensaver-flat '
             // Only the waterline cuts into a widget, so only it needs the room.
-            + (waterClear && motion === 'liquid' ? 'prism-water-clear ' : '') + '[&_*:not([data-keep-bg])]:!bg-transparent [&_.bg-card]:!bg-white/10 '
+            + (waterClear && motion === 'liquid' ? 'prism-water-clear ' : '') + '[&_*:not([data-keep-bg])]:bg-transparent! [&_.bg-card]:bg-white/10! '
             + (outlines
-              ? '[&_.border-border]:!border-white/20'
+              ? '[&_.border-border]:border-white/20!'
               // Only the perimeter — see .prism-no-outline in globals.css. This
-              // was `[&_*]:!border-transparent`, which is every element in the
+              // was `**:border-transparent!`, which is every element in the
               // widget: it wiped the rules between table rows and left the
               // outline of the card, the exact opposite of what it says.
               : 'prism-no-outline')}

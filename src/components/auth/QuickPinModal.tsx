@@ -213,10 +213,11 @@ export function QuickPinModal({
 
   if (!open) return null;
 
-  // Use portal to escape any stacking context (e.g., backdrop-blur in parent)
+  // Use portal to escape any stacking context (e.g., backdrop-blur-sm in parent)
   return createPortal(
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-[10001]"
+      data-testid="pin-modal"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-10001"
       onClick={() => onOpenChange(false)}
     >
       <div
@@ -298,9 +299,13 @@ export function QuickPinModal({
               ))}
             </div>
 
-            {/* Error message */}
-            <div className="h-4 flex items-center justify-center">
-              {error && <p className="text-xs text-destructive">{error}</p>}
+            {/* Error message. min-h reserves the line so the pad doesn't jump
+                when there's no error, but the box still has to be allowed to
+                grow: the longer messages (a lockout, or a member with no PIN
+                set) wrap to two lines and a fixed height painted them over the
+                number pad. */}
+            <div className="min-h-4 flex items-center justify-center">
+              {error && <p className="text-xs text-destructive px-1 leading-snug">{error}</p>}
             </div>
 
             {/* Number pad */}

@@ -89,6 +89,13 @@ export function FamilyStep({ onNext, onBack }: FamilyStepProps) {
   // was selected).
   const pinMatchesLength = pin.length === 0 || pin.length === memberPinLength;
 
+  // Saving a parent with no PIN is allowed and stays allowed, but it is what
+  // decides whether Settings is protected at all. "(optional)" on its own read
+  // as "costs nothing", and someone who skipped it had no way to find out
+  // otherwise (#481).
+  const parentWillHaveNoPin =
+    role === 'parent' && pin.length === 0 && (removePin || !editingMember?.hasPin);
+
   // Names must be unique (case-insensitive, trimmed) — two members with the
   // same name break login/admin member selection. The server enforces this
   // too (it's the source of truth for members added in a prior wizard run),
@@ -296,7 +303,7 @@ export function FamilyStep({ onNext, onBack }: FamilyStepProps) {
           <div className="space-y-2">
             {added.map((m) => (
               <div key={m.id} className="flex items-center gap-2 rounded-md border px-3 py-2">
-                <div className="h-3 w-3 rounded-full flex-shrink-0" style={{ background: m.color }} />
+                <div className="h-3 w-3 rounded-full shrink-0" style={{ background: m.color }} />
                 <span className="flex-1 text-sm font-medium">{m.name}</span>
                 <Badge variant="secondary" className="capitalize text-xs">{m.role}</Badge>
                 {m.hasPin && (
@@ -435,6 +442,13 @@ export function FamilyStep({ onNext, onBack }: FamilyStepProps) {
             {pin.length > 0 && pin.length !== memberPinLength && (
               <p className="text-xs text-destructive">
                 PIN must be exactly {memberPinLength} digits
+              </p>
+            )}
+            {parentWillHaveNoPin && (
+              <p className="text-xs text-muted-foreground">
+                Without a PIN, {trimmedName || 'this parent'} can&apos;t unlock Settings, and
+                Settings stays unprotected unless another parent has one. You can add a PIN
+                later in Settings, Family Members.
               </p>
             )}
             {editingMember?.hasPin && (
