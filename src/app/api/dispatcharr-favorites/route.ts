@@ -1,6 +1,6 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { asc, sql } from 'drizzle-orm';
-import { requireAuth } from '@/lib/auth';
+import { getDisplayAuth } from '@/lib/auth';
 import { withAuth } from '@/lib/api/withAuth';
 import { db } from '@/lib/db/client';
 import { dispatcharrFavorites } from '@/lib/db/schema';
@@ -10,8 +10,10 @@ import { fetchInstances, buildWatchUrl } from '@/lib/integrations/dispatcharrNow
 import { logError } from '@/lib/utils/logError';
 
 export async function GET() {
-  const auth = await requireAuth();
-  if (auth instanceof NextResponse) return auth;
+  const auth = await getDisplayAuth();
+  if (!auth) {
+    return NextResponse.json({ favorites: [] });
+  }
 
   try {
     const favorites = await db.select().from(dispatcharrFavorites)

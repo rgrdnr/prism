@@ -11,7 +11,7 @@
 
 const mockSelect = jest.fn();
 const mockFetchInstances = jest.fn();
-const mockRequireAuth = jest.fn();
+const mockGetDisplayAuth = jest.fn();
 
 jest.mock('@/lib/db/client', () => ({
   db: { select: (...a: unknown[]) => mockSelect(...a) },
@@ -20,7 +20,7 @@ jest.mock('@/lib/db/schema', () => ({
   dispatcharrFavorites: { sortOrder: 'sortOrder', channelName: 'channelName' },
 }));
 jest.mock('@/lib/auth', () => ({
-  requireAuth: (...a: unknown[]) => mockRequireAuth(...a),
+  getDisplayAuth: (...a: unknown[]) => mockGetDisplayAuth(...a),
 }));
 jest.mock('@/lib/utils/logError', () => ({ logError: jest.fn() }));
 jest.mock('drizzle-orm', () => ({ asc: jest.fn(), sql: jest.fn() }));
@@ -44,7 +44,16 @@ function primeFavorites(rows: unknown[]) {
 describe('GET /api/dispatcharr-favorites', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockRequireAuth.mockResolvedValue({ userId: 'p1', role: 'parent' });
+    mockGetDisplayAuth.mockResolvedValue({ userId: 'p1', role: 'parent' });
+  });
+
+  it('returns an empty list when there is no display auth, without touching the db', async () => {
+    mockGetDisplayAuth.mockResolvedValue(null);
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body).toEqual({ favorites: [] });
+    expect(mockSelect).not.toHaveBeenCalled();
   });
 
   it('returns an empty list without calling dispatcharr-now', async () => {

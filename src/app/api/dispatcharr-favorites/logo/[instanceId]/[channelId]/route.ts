@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/auth';
+import { getDisplayAuth } from '@/lib/auth';
 import { fetchLogo } from '@/lib/integrations/dispatcharrNow';
 
 /** Proxies a channel logo through dispatcharr-now so the browser never needs to reach it directly. */
@@ -7,8 +7,10 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ instanceId: string; channelId: string }> }
 ) {
-  const auth = await requireAuth();
-  if (auth instanceof NextResponse) return auth;
+  const auth = await getDisplayAuth();
+  if (!auth) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+  }
 
   const { instanceId, channelId } = await params;
 
