@@ -87,6 +87,39 @@ export async function searchChannels(instanceId: string, q?: string): Promise<Di
   return data.channels ?? [];
 }
 
+export interface DispatcharrNowProgram {
+  title: string | null;
+  description: string | null;
+  /** ISO timestamps */
+  start: string | null;
+  end: string | null;
+}
+
+export interface DispatcharrNowChannelPrograms {
+  /** dispatcharr-now's channel id (the same value stored as channelId on a favorite) */
+  id: string;
+  current: DispatcharrNowProgram | null;
+  next: DispatcharrNowProgram | null;
+}
+
+/**
+ * Current and next EPG programme for specific channels of one instance.
+ * Longer timeout than the other calls: dispatcharr-now does one live "what's
+ * next" lookup per channel behind this.
+ */
+export async function fetchPrograms(
+  instanceId: string,
+  channelIds: string[]
+): Promise<DispatcharrNowChannelPrograms[]> {
+  if (channelIds.length === 0) return [];
+  const qs = `?ids=${encodeURIComponent(channelIds.join(','))}`;
+  const data = await callJson<{ programs: DispatcharrNowChannelPrograms[] }>(
+    `/api/instances/${encodeURIComponent(instanceId)}/programs${qs}`,
+    10000
+  );
+  return data.programs ?? [];
+}
+
 /** Verified no-auth-required MPEG-TS endpoint — safe to hand to an external player. */
 export function buildWatchUrl(instanceBaseUrl: string, channelUuid: string): string {
   return `${instanceBaseUrl.replace(/\/+$/, '')}/proxy/ts/stream/${channelUuid}?output_profile=1`;

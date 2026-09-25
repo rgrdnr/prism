@@ -34,6 +34,7 @@ import {
   LogOut,
   HelpCircle,
   Settings,
+  Tv,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/components/providers/ThemeProvider';
@@ -66,6 +67,7 @@ const primaryItems: NavItem[] = [
 const secondaryItems: NavItem[] = [
   { label: 'Planner', i18nKey: 'nav.planner', href: '/planner', icon: CalendarDays },
   { label: 'Recipes', i18nKey: 'nav.recipes', href: '/recipes', icon: ChefHat },
+  { label: 'TV', i18nKey: 'nav.tv', href: '/tv', icon: Tv },
   { label: 'Settings', i18nKey: 'nav.settings', href: '/settings', icon: Settings },
 ];
 

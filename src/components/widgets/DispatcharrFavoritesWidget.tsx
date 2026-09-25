@@ -48,7 +48,7 @@ export const DispatcharrFavoritesWidget = React.memo(function DispatcharrFavorit
   useVisibilityPolling(load, REFRESH_INTERVAL_MS);
 
   return (
-    <WidgetContainer title="TV Favorites" icon={<Tv className="h-4 w-4" />} loading={loading} className={className}>
+    <WidgetContainer title="TV Favorites" titleHref="/tv" icon={<Tv className="h-4 w-4" />} loading={loading} className={className}>
       {favorites.length === 0 ? (
         <WidgetEmpty
           icon={<Tv className="h-8 w-8" />}

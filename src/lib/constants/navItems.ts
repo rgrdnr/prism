@@ -14,6 +14,7 @@ import {
   Baby,
   Globe,
   Trees,
+  Tv,
   Settings,
 } from 'lucide-react';
 
@@ -43,6 +44,7 @@ export const ALL_NAV_ITEMS: NavItem[] = [
   { label: 'Babysitter', i18nKey: 'nav.babysitter', href: '/babysitter', icon: Baby },
   { label: 'Travel', i18nKey: 'nav.travel', href: '/travel', icon: Globe },
   { label: 'Weekend', i18nKey: 'nav.weekend', href: '/weekend', icon: Trees },
+  { label: 'TV', i18nKey: 'nav.tv', href: '/tv', icon: Tv },
   { label: 'Settings', i18nKey: 'nav.settings', href: '/settings', icon: Settings },
 ];
 
