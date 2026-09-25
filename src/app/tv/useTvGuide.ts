@@ -34,8 +34,11 @@ interface FavoritePrograms {
   next: GuideProgram | null;
 }
 
-/** Guide slots are 30–60 minutes; a minute of staleness on a "now playing" line is fine. */
-const REFRESH_INTERVAL_MS = 60 * 1000;
+/**
+ * Guide slots run 30+ minutes, and a slot ending triggers its own refetch
+ * below, so this only has to catch schedule changes.
+ */
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 /** How often to re-evaluate progress bars and notice a programme has ended. */
 const TICK_MS = 30 * 1000;
 

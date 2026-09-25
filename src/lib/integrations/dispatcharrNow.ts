@@ -104,8 +104,9 @@ export interface DispatcharrNowChannelPrograms {
 
 /**
  * Current and next EPG programme for specific channels of one instance.
- * Longer timeout than the other calls: dispatcharr-now does one live "what's
- * next" lookup per channel behind this.
+ * Longer timeout than the other calls: a request that lands just after a
+ * programme ends waits on dispatcharr-now refreshing the whole guide, which
+ * can take close to ten seconds on a large instance.
  */
 export async function fetchPrograms(
   instanceId: string,
@@ -115,7 +116,7 @@ export async function fetchPrograms(
   const qs = `?ids=${encodeURIComponent(channelIds.join(','))}`;
   const data = await callJson<{ programs: DispatcharrNowChannelPrograms[] }>(
     `/api/instances/${encodeURIComponent(instanceId)}/programs${qs}`,
-    10000
+    20000
   );
   return data.programs ?? [];
 }
