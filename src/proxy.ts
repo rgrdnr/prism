@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAuthWallEnabled, verifyTrustedDeviceToken, TRUSTED_DEVICE_COOKIE } from '@/lib/auth/authWall';
 import { validateSession } from '@/lib/auth/session';
+import { isExternalRequest, isLanOnlyPath } from '@/lib/network/externalAccess';
 
 /**
  * Paths that stay reachable with the authentication wall on (#339). Without
@@ -124,6 +125,23 @@ export async function proxy(request: NextRequest) {
   response.headers.set('x-request-id', requestId);
 
   const { pathname } = request.nextUrl;
+
+  // Home-network-only features (TV favorites) don't exist for callers coming in
+  // through the Cloudflare Tunnel: their stream links point at private
+  // addresses. 404 rather than 403 — from outside, there is simply nothing
+  // there. Checked before the wall so the answer doesn't depend on sign-in.
+  if (isLanOnlyPath(pathname) && isExternalRequest(request.headers)) {
+    if (pathname.startsWith('/api/')) {
+      const notFound = NextResponse.json({ error: 'Not found' }, { status: 404 });
+      notFound.headers.set('x-request-id', requestId);
+      return notFound;
+    }
+    // A path no route can match ('_' folders are private in the app router),
+    // so Next renders the regular not-found page with a 404 status.
+    const notFound = NextResponse.rewrite(new URL('/_lan-only', request.url), { status: 404 });
+    notFound.headers.set('x-request-id', requestId);
+    return notFound;
+  }
 
   // The authentication wall (#339). Off by default, and the check short-circuits
   // on a cached boolean when it is off, so an instance that never turns it on

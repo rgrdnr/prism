@@ -197,4 +197,60 @@ describe('proxy', () => {
       expect(res.status).not.toBe(403);
     });
   });
+  describe('home-network-only paths (TV favorites)', () => {
+    const external = { 'cf-connecting-ip': '203.0.113.7' };
+
+    it('external API call to dispatcharr-favorites → 404 JSON', async () => {
+      const res = await proxy(makeRequest('/api/dispatcharr-favorites', { headers: external }));
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: 'Not found' });
+      expect(res.headers.get('x-request-id')).toMatch(/^[0-9a-f]{24}$/);
+    });
+
+    it('external call to a nested TV API route (logo, epg) → 404', async () => {
+      for (const path of ['/api/dispatcharr-favorites/epg', '/api/dispatcharr-favorites/logo/1/2']) {
+        const res = await proxy(makeRequest(path, { headers: external }));
+        expect(res.status).toBe(404);
+      }
+    });
+
+    it('external mutation to TV API → 404, not a CSRF 403', async () => {
+      const res = await proxy(
+        makeRequest('/api/dispatcharr-favorites/reorder', {
+          method: 'POST',
+          headers: { ...external, host: 'prism.example.com', origin: 'https://evil.example' },
+        }),
+      );
+      expect(res.status).toBe(404);
+    });
+
+    it('external request for the /tv page → rewritten to the not-found page with 404', async () => {
+      const res = await proxy(makeRequest('/tv', { headers: external }));
+      expect(res.status).toBe(404);
+      expect(res.headers.get('x-middleware-rewrite')).toContain('/_lan-only');
+    });
+
+    it('LAN request (no cf-connecting-ip) to TV routes passes through', async () => {
+      for (const path of ['/tv', '/api/dispatcharr-favorites']) {
+        const res = await proxy(makeRequest(path));
+        expect(res.status).not.toBe(404);
+        expect(res.headers.get('x-middleware-rewrite')).toBeNull();
+      }
+    });
+
+    it('external request to other routes is unaffected', async () => {
+      const res = await proxy(makeRequest('/api/tasks', { headers: external }));
+      expect(res.status).not.toBe(404);
+    });
+
+    it('does not match paths that merely start with "tv"', async () => {
+      const res = await proxy(makeRequest('/tvshows', { headers: external }));
+      expect(res.headers.get('x-middleware-rewrite')).toBeNull();
+    });
+
+    it('an empty cf-connecting-ip header does not count as external', async () => {
+      const res = await proxy(makeRequest('/api/dispatcharr-favorites', { headers: { 'cf-connecting-ip': ' ' } }));
+      expect(res.status).not.toBe(404);
+    });
+  });
 });
