@@ -56,6 +56,7 @@ import { ActivityLogSection } from './sections/ActivityLogSection';
 
 import { DisplaysSection } from './sections/DisplaysSection';
 import { IntegrationsSection } from './sections/integrations/IntegrationsSection';
+import { useNetworkContext } from '@/lib/hooks/useNetworkContext';
 
 
 // Exported hooks (consumed by other components)
@@ -167,6 +168,9 @@ export function SettingsView() {
 
   const initialSection = normalizeSection(searchParams.get('section'));
   const [activeSection, setActiveSection] = useState<string>(initialSection);
+  // TV favorites only work on the home network; away from it the section is
+  // hidden (and its API answers 404 — see src/proxy.ts).
+  const { tvEnabled } = useNetworkContext();
 
   // Sync activeSection when the URL section changes mid-mount. Without this,
   // in-app links like <Link href="/settings?section=calendars"> from inside
@@ -204,7 +208,7 @@ export function SettingsView() {
     { id: 'activity', label: 'Activity Log', icon: ClipboardList },
     { id: 'displays', label: 'Text Size', icon: Monitor },
     { id: 'about', label: 'About', icon: Info },
-  ];
+  ].filter((section) => tvEnabled || section.id !== 'dispatcharr');
 
   return (
     <PageWrapper>
@@ -282,7 +286,7 @@ export function SettingsView() {
               {activeSection === 'displays' && <DisplaysSection />}
               {activeSection === 'photos' && <PhotosSettingsSection />}
               {activeSection === 'bus' && <BusTrackingSection />}
-              {activeSection === 'dispatcharr' && <DispatcharrFavoritesSection />}
+              {activeSection === 'dispatcharr' && tvEnabled && <DispatcharrFavoritesSection />}
               {activeSection === 'babysitter' && <BabysitterInfoSection />}
               {activeSection === 'general' && <GeneralSection />}
               {activeSection === 'display' && <DisplaySection />}

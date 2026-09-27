@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ALWAYS_VISIBLE_HREFS } from '@/lib/constants/navItems';
 import type { NavItem } from '@/lib/constants/navItems';
+import { LAN_ONLY_NAV_HREFS } from '@/lib/network/externalAccess';
+import { useNetworkContext } from '@/lib/hooks/useNetworkContext';
 
 const CACHE_KEY = 'prism:hidden-pages';
 
@@ -49,7 +51,15 @@ export function useHiddenPages() {
     } catch { /* ignore */ }
   }, []);
 
-  const hiddenSet = useMemo(() => new Set(hiddenPages), [hiddenPages]);
+  // Pages the household hid, plus — when reached from outside the home
+  // network — pages that can't work there. The second set is never written
+  // back to the setting: it describes where the caller is, not a preference.
+  const { tvEnabled } = useNetworkContext();
+  const hiddenSet = useMemo(() => {
+    const set = new Set(hiddenPages);
+    if (!tvEnabled) LAN_ONLY_NAV_HREFS.forEach((href) => set.add(href));
+    return set;
+  }, [hiddenPages, tvEnabled]);
 
   const filterNavItems = useCallback(
     (items: NavItem[]): NavItem[] =>

@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { WidgetContainer, WidgetEmpty } from './WidgetContainer';
 import { useVisibilityPolling } from '@/lib/hooks/useVisibilityPolling';
 import { launchHref } from '@/lib/utils/vlc';
+import { useNetworkContext } from '@/lib/hooks/useNetworkContext';
 
 interface FavoriteChannel {
   id: string;
@@ -29,6 +30,21 @@ const REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 export const DispatcharrFavoritesWidget = React.memo(function DispatcharrFavoritesWidget({
   className,
 }: DispatcharrFavoritesWidgetProps) {
+  // Away from home the stream links point at private addresses, and the API
+  // answers 404 (src/proxy.ts). Say so instead of rendering dead tiles; the
+  // layout is shared, so the widget's cell stays where it is.
+  const { tvEnabled } = useNetworkContext();
+  if (!tvEnabled) {
+    return (
+      <WidgetContainer title="TV Favorites" icon={<Tv className="h-4 w-4" />} className={className}>
+        <WidgetEmpty icon={<Tv className="h-8 w-8" />} message="TV is available on the home network" />
+      </WidgetContainer>
+    );
+  }
+  return <DispatcharrFavoritesList className={className} />;
+});
+
+function DispatcharrFavoritesList({ className }: DispatcharrFavoritesWidgetProps) {
   const [favorites, setFavorites] = useState<FavoriteChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [serviceUnavailable, setServiceUnavailable] = useState(false);
@@ -96,4 +112,4 @@ export const DispatcharrFavoritesWidget = React.memo(function DispatcharrFavorit
       )}
     </WidgetContainer>
   );
-});
+}

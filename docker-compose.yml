@@ -95,6 +95,30 @@ services:
     networks:
       - prism-network
 
+  # Cloudflare Tunnel — optional internet access without opening a port.
+  # Off unless the `tunnel` profile is enabled:
+  #
+  #   docker compose --profile tunnel up -d cloudflared
+  #
+  # Create a tunnel in the Cloudflare Zero Trust dashboard, put its token in
+  # .env as CLOUDFLARE_TUNNEL_TOKEN, and point its public hostname at
+  # http://app:3000. Put a Cloudflare Access application in front of that
+  # hostname. Requests arriving this way carry cf-connecting-ip, which is how
+  # Prism tells them apart from the LAN and turns off home-only features like
+  # TV favorites (src/lib/network/externalAccess.ts).
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: prism-cloudflared
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - app
+    restart: unless-stopped
+    networks:
+      - prism-network
+
   backup:
     build:
       context: ./scripts
