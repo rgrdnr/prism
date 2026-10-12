@@ -256,7 +256,7 @@ export function PlannerView() {
                                 />
                                 <button
                                   onClick={() => deleteMeal(meal.id)}
-                                  className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive bg-card/80 rounded p-0.5"
+                                  className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-60 text-muted-foreground hover:text-destructive bg-card/80 rounded p-0.5"
                                   aria-label="Delete meal"
                                 >
                                   <Trash2 className="h-3 w-3" />
@@ -374,7 +374,7 @@ export function PlannerView() {
                           <td className="text-center">
                             <button
                               onClick={() => removeHabit(habit.id)}
-                              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                              className="opacity-0 group-hover:opacity-100 pointer-coarse:opacity-60 text-muted-foreground hover:text-destructive"
                               aria-label="Remove goal"
                             >
                               <Trash2 className="h-3 w-3" />
