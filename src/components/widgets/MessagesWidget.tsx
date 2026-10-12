@@ -25,11 +25,13 @@
 'use client';
 
 import * as React from 'react';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistance } from 'date-fns';
+import { useNow } from '@/lib/hooks/useNow';
 import { MessageSquare, Pin, Plus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WidgetContainer, WidgetEmpty } from './WidgetContainer';
 import { Button, UserAvatar } from '@/components/ui';
+import type { GuestKind } from '@/lib/messages/guestNotes';
 
 
 /**
@@ -49,6 +51,8 @@ export interface FamilyMessage {
   pinned: boolean;
   important: boolean;
   expiresAt?: Date | null;
+  /** Set when someone without an account wrote it, e.g. the babysitter (#497). */
+  guest?: GuestKind | null;
 }
 
 
@@ -95,6 +99,8 @@ export const MessagesWidget = React.memo(function MessagesWidget({
   onDeleteClick,
   className,
 }: MessagesWidgetProps) {
+  // Keeps "5 minutes ago" moving between fetches.
+  const now = useNow();
   // Use provided messages (no demo data fallback in production)
   const allMessages = externalMessages || [];
 
@@ -152,6 +158,7 @@ export const MessagesWidget = React.memo(function MessagesWidget({
               <MessageItem
                 key={message.id}
                 message={message}
+                now={now}
                 onClick={() => onMessageClick?.(message)}
                 onDelete={onDeleteClick ? () => onDeleteClick(message.id) : undefined}
               />
@@ -177,14 +184,16 @@ export const MessagesWidget = React.memo(function MessagesWidget({
  */
 function MessageItem({
   message,
+  now,
   onClick,
   onDelete,
 }: {
   message: FamilyMessage;
+  now: Date;
   onClick?: () => void;
   onDelete?: () => void;
 }) {
-  const timeAgo = formatDistanceToNow(message.createdAt, { addSuffix: true });
+  const timeAgo = formatDistance(message.createdAt, now, { addSuffix: true });
 
   return (
     <div
@@ -225,7 +234,7 @@ function MessageItem({
                 e.stopPropagation();
                 onDelete();
               }}
-              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-destructive/20 transition-opacity"
+              className="opacity-0 group-hover:opacity-100 pointer-coarse:opacity-60 p-1 rounded hover:bg-destructive/20 transition-opacity"
               title="Delete message"
               aria-label="Delete message"
             >

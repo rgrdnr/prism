@@ -20,6 +20,8 @@ export interface CalendarEvent {
   recurring?: boolean;
   recurrenceRule?: string | null;
   reminderMinutes?: number | null;
+  /** An occurrence of a recurring series that can be hidden as a whole (#592). */
+  inSeries?: boolean;
   calendarName: string;
   calendarId: string;
   /** The calendar group this event belongs to (for split-column views) */
@@ -44,6 +46,7 @@ export interface CalendarEventResponse {
   color: string | null;
   reminderMinutes: number | null;
   showOnPlanner: boolean;
+  inSeries: boolean;
   calendarSource: {
     id: string;
     name: string;

@@ -1,10 +1,10 @@
 import { calculateNextDue } from '../calculateNextDue';
 
 /**
- * All tests use a fixed reference date to avoid flaky results.
- * Wednesday, 2026-03-11
+ * All tests start from a fixed date key: Wednesday, 2026-03-11. The function
+ * takes "today" as a key, so the result does not depend on the process zone.
  */
-const REF = new Date('2026-03-11T12:00:00Z');
+const REF = '2026-03-11';
 
 describe('calculateNextDue', () => {
   // --- daily ---
@@ -119,5 +119,16 @@ describe('calculateNextDue', () => {
   it('unknown frequency falls back to tomorrow', () => {
     // Cast to bypass TS check
     expect(calculateNextDue('unknown' as 'daily', null, null, REF)).toBe('2026-03-12');
+  });
+
+  // --- the day comes from the key, not the clock ---
+  it('crosses a DST change by calendar days', () => {
+    // US clocks spring forward on 2026-03-08; still exactly one day later.
+    expect(calculateNextDue('daily', null, null, '2026-03-07')).toBe('2026-03-08');
+    expect(calculateNextDue('custom', 7, null, '2026-03-05')).toBe('2026-03-12');
+  });
+
+  it('rejects a key that is not a date', () => {
+    expect(() => calculateNextDue('daily', null, null, '2026-02-30')).toThrow(RangeError);
   });
 });

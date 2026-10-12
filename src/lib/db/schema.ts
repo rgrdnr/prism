@@ -178,6 +178,18 @@ export const events = pgTable('events', {
   // (deletes-only review). Null = not pending.
   pendingDeletion: timestamp('pending_deletion'),
 
+  // Set when a parent hides the event in Prism (#592). The event stays in its
+  // source calendar and every read path leaves it out. The sync upserts name
+  // the columns they overwrite, so a sync never unhides it. Null = shown.
+  hiddenAt: timestamp('hidden_at'),
+
+  // The recurring series this row is an occurrence of, as the source names it:
+  // Google's recurringEventId, or the master VEVENT's UID for an iCal feed.
+  // Null for a one-off event and for Prism-created rows. A hidden series
+  // (hiddenEventSeries) matches on (calendarSourceId, seriesKey). CalDAV rows
+  // stay null until edited occurrences carry their master's UID (#593).
+  seriesKey: varchar('series_key', { length: 255 }),
+
   // CalDAV calendar-object href + ETag, captured at sync time. A CalDAV DELETE
   // targets the object by href (not UID), so we need it to propagate a local
   // delete upstream to the source server (single-event scope; recurring events
@@ -194,6 +206,27 @@ export const events = pgTable('events', {
   // Unique constraint to prevent duplicate synced events
   sourceExternalUnique: uniqueIndex('events_source_external_unique')
     .on(table.calendarSourceId, table.externalEventId),
+  sourceSeriesIdx: index('events_source_series_idx').on(table.calendarSourceId, table.seriesKey),
+}));
+
+/**
+ * Recurring series hidden in Prism (#592). Every occurrence whose
+ * (calendarSourceId, seriesKey) matches is left out of the read paths,
+ * including occurrences that sync in later. The title is a copy for the
+ * Settings list, which must name the series even when no occurrence is in the
+ * sync window. Cascade-deletes with the source.
+ */
+export const hiddenEventSeries = pgTable('hidden_event_series', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  calendarSourceId: uuid('calendar_source_id')
+    .notNull()
+    .references(() => calendarSources.id, { onDelete: 'cascade' }),
+  seriesKey: varchar('series_key', { length: 255 }).notNull(),
+  title: varchar('title', { length: 255 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  hiddenSeriesSourceKeyUnique: uniqueIndex('hidden_event_series_source_key_unique')
+    .on(table.calendarSourceId, table.seriesKey),
 }));
 
 /**
@@ -282,7 +315,10 @@ export const tasks = pgTable('tasks', {
 
   assignedTo: uuid('assigned_to').references(() => users.id, { onDelete: 'set null' }),
 
-  dueDate: timestamp('due_date'),
+  // Due date and optional wall-clock time, like a chore's nextDue and
+  // nextDueTime. A calendar date, not an instant (src/lib/utils/taskDue.ts).
+  dueDate: date('due_date'),
+  dueTime: varchar('due_time', { length: 5 }),
 
   priority: varchar('priority', { length: 20 })
     .$type<'high' | 'medium' | 'low'>(),
@@ -361,7 +397,7 @@ export const chores = pgTable('chores', {
 
   pointValue: integer('point_value').default(0).notNull(),
 
-  requiresApproval: boolean('requires_approval').default(false).notNull(),
+  requiresApproval: boolean('requires_approval').default(true).notNull(),
 
   enabled: boolean('enabled').default(true).notNull(),
 
@@ -705,9 +741,14 @@ export const familyMessages = pgTable('family_messages', {
 
   message: text('message').notNull(),
 
+  // Null for a note from someone without an account (#497); guestKind then
+  // says who it was and guestName is the name they gave, if any.
   authorId: uuid('author_id')
-    .references(() => users.id, { onDelete: 'cascade' })
-    .notNull(),
+    .references(() => users.id, { onDelete: 'cascade' }),
+
+  guestKind: varchar('guest_kind', { length: 20 }).$type<'babysitter'>(),
+
+  guestName: varchar('guest_name', { length: 40 }),
 
   pinned: boolean('pinned').default(false).notNull(),
 
@@ -1286,7 +1327,9 @@ export const photos = pgTable('photos', {
   height: integer('height'),
   sizeBytes: integer('size_bytes'),
 
-  // When the photo was taken (from EXIF or file date)
+  // When the photo was taken (from EXIF or file date), on the camera's clock
+  // written as UTC: EXIF carries no zone, and OneDrive reports it this way.
+  // Read its date and time with the UTC getters (see immichTakenAt).
   takenAt: timestamp('taken_at'),
 
   // External ID for synced photos (e.g., OneDrive item ID)

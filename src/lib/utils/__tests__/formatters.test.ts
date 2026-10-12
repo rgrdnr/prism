@@ -5,7 +5,8 @@ describe('formatTaskRow', () => {
     id: 'task-1',
     title: 'Buy groceries',
     description: 'Get milk and eggs',
-    dueDate: new Date('2026-03-01T10:00:00Z'),
+    dueDate: '2026-03-01',
+    dueTime: '10:00',
     priority: 'high' as const,
     category: 'shopping',
     completed: false,
@@ -20,9 +21,10 @@ describe('formatTaskRow', () => {
     assignedUserAvatar: '/avatars/alex.png',
   };
 
-  it('converts dates to ISO strings', () => {
+  it('converts timestamps to ISO strings and passes the due through', () => {
     const result = formatTaskRow(baseRow);
-    expect(result.dueDate).toBe('2026-03-01T10:00:00.000Z');
+    expect(result.dueDate).toBe('2026-03-01');
+    expect(result.dueTime).toBe('10:00');
     expect(result.createdAt).toBe('2026-02-20T08:00:00.000Z');
     expect(result.updatedAt).toBe('2026-02-20T09:00:00.000Z');
   });
@@ -49,7 +51,7 @@ describe('formatTaskRow', () => {
   });
 
   it('converts null dates to null strings', () => {
-    const result = formatTaskRow({ ...baseRow, dueDate: null, completedAt: null });
+    const result = formatTaskRow({ ...baseRow, dueDate: null, dueTime: null, completedAt: null });
     expect(result.dueDate).toBeNull();
     expect(result.completedAt).toBeNull();
   });
@@ -101,6 +103,39 @@ describe('formatMessageRow', () => {
     const result = formatMessageRow(baseRow);
     expect(result.pinned).toBe(true);
     expect(result.important).toBe(false);
+  });
+
+  it('marks a member message as not from a guest', () => {
+    expect(formatMessageRow(baseRow).guest).toBeNull();
+  });
+
+  describe('guest note (no user row, #497)', () => {
+    const guestRow = {
+      ...baseRow,
+      authorId: null,
+      authorName: null,
+      authorColor: null,
+      authorAvatar: null,
+      guestKind: 'babysitter' as const,
+      guestName: null,
+    };
+
+    it('shows the babysitter as the author', () => {
+      const result = formatMessageRow(guestRow);
+      expect(result.guest).toBe('babysitter');
+      expect(result.author).toEqual({
+        id: 'babysitter',
+        name: 'Babysitter',
+        color: expect.any(String),
+        avatarUrl: 'emoji:🍼',
+      });
+    });
+
+    it('adds the name the sitter typed', () => {
+      const result = formatMessageRow({ ...guestRow, guestName: 'Sam' });
+      expect(result.author.name).toBe('Babysitter (Sam)');
+      expect(result.author.id).toBe('babysitter');
+    });
   });
 });
 

@@ -13,6 +13,7 @@ import type { Chore, Meal } from '@/types';
 import type { Task } from '@/components/widgets/TasksWidget';
 import type { DayBucket } from './useWeekViewData';
 import { useTimeFormat } from '@/components/providers';
+import { floatingUtcToDateKey } from '@/lib/utils/zonedDate';
 import { eventOccursOnDisplayDay } from '@/lib/utils/timeFormat';
 
 export interface OverlayFlags {
@@ -187,13 +188,15 @@ export function useDayBucketsForRange({
         .sort((a, b) => a.title.localeCompare(b.title));
 
       const dayTasks = safeTasks
-        .filter((t) => t.dueDate && isSameDay(t.dueDate, date))
+        .filter((t) => t.dueDate === key)
         .sort((a, b) => {
           const order = { high: 0, medium: 1, low: 2 } as const;
           return order[a.priority] - order[b.priority];
         });
 
-      const dayWeather = weather?.forecast.find((f) => isSameDay(f.date, date));
+      // forecast.date is UTC midnight of the forecast's date: compare dates,
+      // not local days, or the weather sits a column early west of UTC.
+      const dayWeather = weather?.forecast.find((f) => floatingUtcToDateKey(f.date) === key);
 
       map.set(key, {
         date,

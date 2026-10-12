@@ -16,6 +16,7 @@ import { WeekendPlaceDetail } from './components/WeekendPlaceDetail';
 import { WeekendPlaceForm } from './components/WeekendPlaceForm';
 import { TagChip } from './components/TagChip';
 import { TAG_PRESETS } from './constants';
+import { format } from 'date-fns';
 import type { WeekendPlace } from './types';
 
 type FilterStatus = 'all' | 'backlog' | 'visited';
@@ -115,7 +116,8 @@ export function WeekendView() {
       const updated = await updatePlace(freshSelected.id, {
         status: 'visited',
         visitCount: freshSelected.visitCount + 1,
-        lastVisitedDate: new Date().toISOString().slice(0, 10),
+        // Today on the device's clock; toISOString is UTC, tomorrow on a US evening.
+        lastVisitedDate: format(new Date(), 'yyyy-MM-dd'),
       });
       setSelectedPlace(updated);
       toast({ title: `Marked "${freshSelected.name}" as visited!` });
@@ -128,7 +130,7 @@ export function WeekendView() {
 
   return (
     <PageWrapper>
-    <div className="h-screen flex flex-col">
+    <div className="h-page flex flex-col">
       {/* Toolbar */}
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-background/80 backdrop-blur-sm shrink-0 flex-wrap">
         {/* Status tabs */}

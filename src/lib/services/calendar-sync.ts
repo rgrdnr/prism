@@ -25,6 +25,8 @@ import {
 import { decrypt, encrypt } from '@/lib/utils/crypto';
 import { validatePublicUrl, UnsafeUrlError } from '@/lib/utils/safeFetch';
 import { isGoogleCalendarWebLink, GOOGLE_WEB_LINK_ERROR } from '@/lib/utils/googleCalendarLink';
+import { localDateToFloatingAllDay } from '@/lib/utils/timeFormat';
+import { getHouseholdTimezone } from '@/lib/householdTimezone';
 import { async as icalAsync, type VEvent, type CalendarResponse } from 'node-ical';
 
 /**
@@ -306,6 +308,7 @@ export async function syncGoogleCalendarSource(
           allDay: internalEvent.allDay,
           recurring: internalEvent.recurring,
           recurrenceRule: internalEvent.recurrenceRule,
+          seriesKey: internalEvent.seriesKey,
           lastSynced: new Date(),
         })
         .onConflictDoUpdate({
@@ -319,6 +322,7 @@ export async function syncGoogleCalendarSource(
             allDay: internalEvent.allDay,
             recurring: internalEvent.recurring,
             recurrenceRule: internalEvent.recurrenceRule,
+            seriesKey: internalEvent.seriesKey,
             lastSynced: new Date(),
             updatedAt: new Date(),
           },
@@ -511,6 +515,8 @@ const ICAL_DISABLE_THRESHOLD = 3;
 /**
  * Build a stable per-instance external ID for a recurring iCal event so each
  * occurrence gets its own row keyed off (calendarSourceId, externalEventId).
+ * `occurrence` is the stored start: for an all-day event, UTC midnight of its
+ * date, so the id does not depend on the server's zone.
  */
 function instanceExternalId(uid: string, occurrence: Date): string {
   return `${uid}_${occurrence.toISOString()}`;
@@ -645,6 +651,19 @@ export async function syncIcalCalendarSource(
 
       const allDay = vevent.datetype === 'date';
       const baseDurationMs = vevent.end.getTime() - vevent.start.getTime();
+      // node-ical builds VALUE=DATE at server-local midnight; store all-day
+      // ranges as floating UTC midnights with an exclusive end, like Google.
+      // Length is counted in whole days so a DST change between the master and
+      // an occurrence cannot shorten it.
+      const lengthDays = (start: Date, end: Date) =>
+        Math.max(1, Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)));
+      const storedRange = (inst: { start: Date; end: Date }) => {
+        if (!allDay) return { startTime: inst.start, endTime: inst.end };
+        const startTime = localDateToFloatingAllDay(inst.start);
+        const endTime = new Date(startTime);
+        endTime.setUTCDate(endTime.getUTCDate() + lengthDays(inst.start, inst.end));
+        return { startTime, endTime };
+      };
 
       // exdate is keyed by ISO-ish date string but we only need the values for comparison
       const exdates = new Set<number>();
@@ -654,19 +673,66 @@ export async function syncIcalCalendarSource(
         }
       }
 
-      const instances: Array<{ start: Date; end: Date; externalId: string }> = [];
+      const title = readIcalString(vevent.summary) || '(no title)';
+      const description = readIcalString(vevent.description);
+      const location = readIcalString(vevent.location);
+
+      type Instance = {
+        start: Date;
+        end: Date;
+        externalId: string;
+        legacyExternalId?: string;
+        title: string;
+        description: string | null;
+        location: string | null;
+      };
+      const instances: Instance[] = [];
       const isRecurring = !!vevent.rrule;
 
       if (vevent.rrule) {
-        // Expand recurring instances within the sync window
-        const occurrences = vevent.rrule.between(timeMin, timeMax, true);
-        for (const occ of occurrences) {
-          if (exdates.has(occ.getTime())) continue;
+        // An edited occurrence (a VEVENT with RECURRENCE-ID) is not a
+        // top-level item: node-ical files it under the master's
+        // `recurrences`, keyed by the slot it replaces (#593's iCal twin).
+        // Each slot takes its edit when there is one, so it shows the moved
+        // time and edited details, and a cancelled edit drops the slot.
+        const recurrences = (vevent.recurrences ?? {}) as Record<string, VEvent | undefined>;
+        const editFor = (slot: Date): VEvent | undefined => (allDay
+          ? recurrences[`${slot.getFullYear()}-${String(slot.getMonth() + 1).padStart(2, '0')}-${String(slot.getDate()).padStart(2, '0')}`]
+          : recurrences[slot.toISOString()]);
+        const addSlot = (slot: Date, edit: VEvent | undefined) => {
+          if (edit?.status === 'CANCELLED') return;
+          // Keyed on the slot, so an edit keeps the id of the occurrence it
+          // replaces. Older builds keyed an all-day instance on the parser's
+          // value, server-local midnight, so its row may still carry that id.
+          const externalId = instanceExternalId(uid, allDay ? localDateToFloatingAllDay(slot) : slot);
+          const legacyExternalId = instanceExternalId(uid, slot);
+          const start = edit?.start ?? slot;
+          const end = edit?.end ?? new Date(start.getTime() + baseDurationMs);
           instances.push({
-            start: occ,
-            end: new Date(occ.getTime() + baseDurationMs),
-            externalId: instanceExternalId(uid, occ),
+            start,
+            end,
+            externalId,
+            ...(legacyExternalId !== externalId ? { legacyExternalId } : {}),
+            title: (edit && readIcalString(edit.summary)) || title,
+            description: edit ? readIcalString(edit.description) : description,
+            location: edit ? readIcalString(edit.location) : location,
           });
+        };
+
+        // Expand recurring instances within the sync window
+        const handled = new Set<VEvent>();
+        for (const occ of vevent.rrule.between(timeMin, timeMax, true)) {
+          if (exdates.has(occ.getTime())) continue;
+          const edit = editFor(occ);
+          if (edit) handled.add(edit);
+          addSlot(occ, edit);
+        }
+        // An edit whose slot is outside the window but which was moved into
+        // it. Each edit is filed under two keys, hence the set.
+        for (const edit of new Set(Object.values(recurrences))) {
+          if (!edit || handled.has(edit) || !edit.recurrenceid || !edit.start || !edit.end) continue;
+          if (edit.end < timeMin || edit.start > timeMax) continue;
+          addSlot(edit.recurrenceid, edit);
         }
       } else {
         // Single event — only sync if it overlaps the window at all
@@ -675,6 +741,9 @@ export async function syncIcalCalendarSource(
             start: vevent.start,
             end: vevent.end,
             externalId: uid,
+            title,
+            description,
+            location,
           });
         }
       }
@@ -687,13 +756,25 @@ export async function syncIcalCalendarSource(
       // signal. Preserves Google's per-row shape (which uses singleEvents:
       // true and never carries an RRULE on individual instances either).
       const recurrenceRule = null;
-      const title = readIcalString(vevent.summary) || '(no title)';
-      const description = readIcalString(vevent.description);
-      const location = readIcalString(vevent.location);
+      // Every expanded occurrence belongs to the master's series (#592).
+      const seriesKey = isRecurring ? uid : null;
 
       for (const inst of instances) {
-        if (dismissed.has(inst.externalId)) continue;
+        const { title, description, location } = inst;
+        const legacyId = inst.legacyExternalId;
+        if (dismissed.has(inst.externalId) || (legacyId && dismissed.has(legacyId))) continue;
         externalIds.add(inst.externalId);
+        if (legacyId && !existingByExtId.has(inst.externalId) && existingByExtId.has(legacyId)) {
+          // Rename in place, so the row keeps its id and nothing hanging off
+          // it is lost to a delete and re-insert.
+          await db
+            .update(events)
+            .set({ externalEventId: inst.externalId })
+            .where(and(eq(events.calendarSourceId, sourceId), eq(events.externalEventId, legacyId)));
+          existingByExtId.set(inst.externalId, existingByExtId.get(legacyId)!);
+          existingByExtId.delete(legacyId);
+        }
+        const { startTime, endTime } = storedRange(inst);
         await db
           .insert(events)
           .values({
@@ -702,11 +783,12 @@ export async function syncIcalCalendarSource(
             title,
             description,
             location,
-            startTime: inst.start,
-            endTime: inst.end,
+            startTime,
+            endTime,
             allDay,
             recurring: isRecurring,
             recurrenceRule,
+            seriesKey,
             lastSynced: new Date(),
           })
           .onConflictDoUpdate({
@@ -715,11 +797,12 @@ export async function syncIcalCalendarSource(
               title,
               description,
               location,
-              startTime: inst.start,
-              endTime: inst.end,
+              startTime,
+              endTime,
               allDay,
               recurring: isRecurring,
               recurrenceRule,
+              seriesKey,
               lastSynced: new Date(),
               updatedAt: new Date(),
             },
@@ -727,7 +810,7 @@ export async function syncIcalCalendarSource(
 
         const prevI = existingByExtId.get(inst.externalId);
         if (!prevI) added++;
-        else if (eventChanged(prevI, { title, description, location, startTime: inst.start, endTime: inst.end, allDay, recurring: isRecurring, recurrenceRule })) updated++;
+        else if (eventChanged(prevI, { title, description, location, startTime, endTime, allDay, recurring: isRecurring, recurrenceRule })) updated++;
         else unchanged++;
       }
     } catch (error) {
@@ -919,17 +1002,23 @@ export async function syncCalDAVCalendarSource(
       source.sourceCalendarId,
       timeMin,
       timeMax,
+      await getHouseholdTimezone(),
     );
 
     const dismissed = await loadDismissedExternalIds(sourceId);
     for (const event of caldavEvents) {
-      if (dismissed.has(event.uid)) continue;
-      const existing = await db.query.events.findFirst({
+      if (dismissed.has(event.uid) || (event.legacyUid && dismissed.has(event.legacyUid))) continue;
+      const findByExternalId = (externalEventId: string) => db.query.events.findFirst({
         where: and(
           eq(events.calendarSourceId, sourceId),
-          eq(events.externalEventId, event.uid),
+          eq(events.externalEventId, externalEventId),
         ),
       });
+      // A row stored under an instance's older id is updated in place, which
+      // also moves it to the current id (eventData carries externalEventId).
+      // Otherwise it would be flagged for deletion below and re-added.
+      const existing = await findByExternalId(event.uid)
+        ?? (event.legacyUid ? await findByExternalId(event.legacyUid) : undefined);
 
       const eventData = {
         title: event.title,
@@ -941,6 +1030,7 @@ export async function syncCalDAVCalendarSource(
         color: event.color || source.color,
         recurring: event.recurring,
         recurrenceRule: event.recurrenceRule,
+        seriesKey: event.seriesKey,
         calendarSourceId: sourceId,
         externalEventId: event.uid,
         // Persist the object href + ETag so a local delete can propagate
@@ -1050,6 +1140,7 @@ export async function syncCalDAVTasks(
       config.username,
       password,
       source.sourceCalendarId,
+      await getHouseholdTimezone(),
     );
 
     // Apple iCloud injects metadata VTODOs into reminder lists whose data
@@ -1117,7 +1208,8 @@ export async function syncCalDAVTasks(
       const taskData = {
         title: task.title,
         description: task.description,
-        dueDate: task.dueDate || null,
+        dueDate: task.dueDate,
+        dueTime: task.dueTime,
         completed: task.completed,
         completedAt: task.completedAt,
         priority: (task.priority || 'medium') as 'high' | 'medium' | 'low',

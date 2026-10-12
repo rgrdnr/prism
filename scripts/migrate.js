@@ -56,11 +56,36 @@ async function waitForDatabase(sql) {
 }
 
 async function main() {
-  const sql = postgres(DATABASE_URL, { max: 1, connect_timeout: 10, onnotice: () => {} });
+  // Run in UTC, as the app's client does (DB_SESSION_PARAMS in
+  // src/lib/db/client.ts), so a migration's now() matches the app's.
+  const sql = postgres(DATABASE_URL, {
+    max: 1,
+    connect_timeout: 10,
+    onnotice: () => {},
+    connection: { TimeZone: 'UTC' },
+  });
 
   try {
     await waitForDatabase(sql);
     console.log('[migrate] Connected');
+
+    // The zone this process runs in (TZ; UTC unless set, the host's zone on
+    // Home Assistant). A migration that converts stored instants to wall
+    // times reads it when the household has no time zone setting, which is
+    // the same fallback getHouseholdTimezone() uses.
+    const processZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    await sql`SELECT set_config('prism.process_timezone', ${processZone}, false)`;
+
+    // The database's own default zone: what every session ran in before
+    // they were all opened in UTC (#527), and so the zone column defaults of
+    // now() were written in. Read on a connection without the UTC override.
+    const probe = postgres(DATABASE_URL, { max: 1, connect_timeout: 10, onnotice: () => {} });
+    try {
+      const [{ zone }] = await probe`SELECT current_setting('TimeZone') AS zone`;
+      await sql`SELECT set_config('prism.db_default_timezone', ${zone}, false)`;
+    } finally {
+      await probe.end();
+    }
 
     await sql`
       CREATE TABLE IF NOT EXISTS public.__prism_migrations (

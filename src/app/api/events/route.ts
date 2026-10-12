@@ -30,8 +30,11 @@ import { invalidateEntity } from '@/lib/cache/cacheKeys';
 import { createCalendarEvent, refreshAccessToken, toGoogleAllDayRange } from '@/lib/integrations/google-calendar';
 import { decrypt, encrypt } from '@/lib/utils/crypto';
 import { formatEventRow } from '@/lib/utils/formatters';
+import { visibleEventsCondition } from '@/lib/services/hiddenEvents';
 import { logActivity } from '@/lib/services/auditLog';
 import { logError } from '@/lib/utils/logError';
+import { getHouseholdTimezone } from '@/lib/householdTimezone';
+import { normalizeAllDayRange } from '@/lib/utils/allDayRange';
 import { MAX_CALENDAR_EVENTS } from '@/lib/utils/calendarRange';
 
 // Cache events for 5 minutes
@@ -107,7 +110,8 @@ export async function GET(request: NextRequest) {
       and(lte(events.startTime, startDate), gte(events.endTime, endDate))
     );
 
-    const conditions = [dateRangeCondition];
+    // A hidden event (#592) stays in the database so a sync cannot re-add it.
+    const conditions = [dateRangeCondition, visibleEventsCondition()];
 
     if (calendarId) {
       conditions.push(eq(events.calendarSourceId, calendarId));
@@ -136,6 +140,7 @@ export async function GET(request: NextRequest) {
           allDay: events.allDay,
           recurring: events.recurring,
           recurrenceRule: events.recurrenceRule,
+          seriesKey: events.seriesKey,
           color: events.color,
           reminderMinutes: events.reminderMinutes,
           showOnPlanner: events.showOnPlanner,
@@ -317,9 +322,14 @@ export async function POST(request: NextRequest) {
       createdBy,
     } = validation.data;
 
-    // Convert ISO strings to Date objects
-    const startTime = new Date(startTimeStr);
-    const endTime = new Date(endTimeStr);
+    // Convert ISO strings to Date objects. An all-day range is stored in the
+    // floating form (see allDayRange.ts), whatever shape the caller sent.
+    let startTime = new Date(startTimeStr);
+    let endTime = new Date(endTimeStr);
+    if (allDay) {
+      ({ start: startTime, end: endTime } =
+        normalizeAllDayRange(startTime, endTime, await getHouseholdTimezone()));
+    }
 
     let externalEventId: string | null = null;
     let googleWarning: string | null = null;
@@ -370,7 +380,7 @@ export async function POST(request: NextRequest) {
               .where(eq(calendarSources.id, calendarSourceId));
           }
 
-          const allDayRange = allDay ? toGoogleAllDayRange(startTime, endTime) : null;
+          const allDayRange = allDay ? toGoogleAllDayRange(startTime, endTime, await getHouseholdTimezone()) : null;
 
           // Create event on Google Calendar
           const googleEvent = await createCalendarEvent(

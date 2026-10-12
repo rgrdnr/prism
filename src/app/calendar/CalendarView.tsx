@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useDateLabels } from '@/lib/hooks/useDateLabels';
 import { sanitizeEventDescription } from '@/lib/utils/eventDescriptionHtml';
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addDays, addWeeks, startOfDay } from 'date-fns';
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addDays, addWeeks } from 'date-fns';
 import {
   DndContext,
   DragOverlay,
@@ -17,6 +17,8 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core';
 import { toast } from '@/components/ui/use-toast';
+import { ToastAction } from '@/components/ui/toast';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useConfirmDialog } from '@/lib/hooks/useConfirmDialog';
 import {
@@ -52,7 +54,7 @@ import { useCalendarNotes } from '@/lib/hooks/useCalendarNotes';
 import { useDayBucketsForRange } from '@/lib/hooks/useDayBucketsForRange';
 import type { DayBucket } from '@/lib/hooks/useWeekViewData';
 import type { CalendarEvent } from '@/types/calendar';
-import { WeekItemCard } from '@/components/calendar/cells';
+import { WeekItemCard, choreStripeColor } from '@/components/calendar/cells';
 import { useIsMobile, useSwipeNavigation, useCalendarSources } from '@/lib/hooks';
 import { useAuth } from '@/components/providers';
 import { useWeekStartsOn } from '@/lib/hooks/useWeekStartsOn';
@@ -69,7 +71,7 @@ import { TaskModal } from '@/app/tasks/TaskModal';
 import { useChoreModals } from '@/app/chores/useChoreModals';
 import type { OverlayItemRef } from '@/components/calendar/cells';
 import type { Chore, Task, Meal } from '@/types';
-import { formatDisplayTime, toDisplayDate } from '@/lib/utils/timeFormat';
+import { eventStartDisplayDate, formatDisplayTime, toDisplayDate } from '@/lib/utils/timeFormat';
 import { readResponseError } from '@/lib/utils/responseError';
 
 const MEAL_TYPE_ORDER = { breakfast: 0, lunch: 1, snack: 2, dinner: 3 } as const;
@@ -316,15 +318,12 @@ export function CalendarView() {
 
     try {
       if (variant === 'chore') await moveChore(itemId, targetBucket.date);
-      else if (variant === 'task') {
-        const t = allTasksList.find((x) => x.id === itemId);
-        await moveTask(itemId, targetBucket.date, t?.dueDate ? new Date(t.dueDate) : null);
-      }
+      else if (variant === 'task') await moveTask(itemId, targetBucket.date);
       else if (variant === 'meal') await moveMeal(itemId, targetBucket.date);
       else if (variant === 'event') {
         const ev = events.find((e) => e.id === itemId);
         if (!ev) return;
-        await moveEvent(itemId, ev.startTime, ev.endTime, targetBucket.date);
+        await moveEvent(ev, targetBucket.date);
       }
     } catch (err) {
       setMoveError(err instanceof Error ? err.message : t('errors.moveFailed'));
@@ -373,7 +372,7 @@ export function CalendarView() {
 
   return (
     <PageWrapper>
-      <div className="h-screen flex flex-col">
+      <div className="h-page flex flex-col">
         <SubpageHeader
           icon={!isMobile ? <Calendar className="h-5 w-5 text-primary" /> : undefined}
           title={getDateRangeTitle()}
@@ -648,6 +647,8 @@ export function CalendarView() {
             onClose={() => setSelectedEvent(null)}
             onEdit={() => { setEditingEvent(selectedEvent); setSelectedEvent(null); }}
             onDeleted={() => { setSelectedEvent(null); refreshEvents(); }}
+            canHide={activeUser?.role === 'parent'}
+            onHiddenChange={() => { setSelectedEvent(null); refreshEvents(); }}
           />
         )}
 
@@ -718,7 +719,8 @@ export function CalendarView() {
                     priority: updated.priority,
                     category: updated.category,
                     assignedTo: updated.assignedTo?.id,
-                    dueDate: updated.dueDate === null ? null : updated.dueDate.toISOString(),
+                    dueDate: updated.dueDate,
+                    dueTime: updated.dueTime,
                     completed: updated.completed,
                     listId: updated.listId,
                   }),
@@ -774,17 +776,68 @@ export function CalendarView() {
 }
 
 
-function EventDetailModal({ event, onClose, onEdit, onDeleted }: {
-  event: { id: string; title: string; startTime: Date; endTime: Date; allDay: boolean; color: string; location?: string; description?: string; calendarName: string };
+function EventDetailModal({ event, onClose, onEdit, onDeleted, canHide, onHiddenChange }: {
+  event: { id: string; title: string; startTime: Date; endTime: Date; allDay: boolean; color: string; location?: string; description?: string; calendarName: string; inSeries?: boolean };
   onClose: () => void;
   onEdit: () => void;
   onDeleted: () => void;
+  /** Parents only (#592); the hide route refuses anyone else. */
+  canHide: boolean;
+  /** Called after a hide, and again after its Undo. */
+  onHiddenChange: () => void;
 }) {
   const { timeFormat, displayTimezone } = useTimeFormat();
   const t = useTranslations('calendar');
   const tActions = useTranslations('common.actions');
   const d = useDateLabels();
   const { confirm, dialogProps } = useConfirmDialog();
+  const [hiding, setHiding] = useState(false);
+  // On an occurrence of a series, ticking the box first asks which to hide.
+  const [choosingScope, setChoosingScope] = useState(false);
+
+  // Hide in Prism (#592): applies at once, like the rest of the app, with an
+  // Undo in the toast. The event stays in its source calendar.
+  const handleHide = async (scope: 'event' | 'series') => {
+    setHiding(true);
+    try {
+      const response = await fetch(
+        `/api/events/${event.id}/hidden${scope === 'series' ? '?scope=series' : ''}`,
+        { method: 'PUT' },
+      );
+      if (!response.ok) {
+        const { message } = await readResponseError(response, t('errors.hideFailed'));
+        toast({ title: message, variant: 'destructive' });
+        setHiding(false);
+        return;
+      }
+      const { seriesId } = (await response.json()) as { seriesId?: string | null };
+      const undoUrl = scope === 'series' && seriesId
+        ? `/api/events/hidden-series/${seriesId}`
+        : `/api/events/${event.id}/hidden`;
+      onHiddenChange();
+      toast({
+        title: t(scope === 'series' ? 'event.hiddenSeriesToast' : 'event.hiddenToast', { title: event.title }),
+        description: t('event.hiddenToastBody'),
+        action: (
+          <ToastAction
+            altText={tActions('undo')}
+            onClick={async () => {
+              try {
+                const undo = await fetch(undoUrl, { method: 'DELETE' });
+                if (!undo.ok) throw new Error(String(undo.status));
+                onHiddenChange();
+              } catch { toast({ title: t('errors.unhideFailed'), variant: 'destructive' }); }
+            }}
+          >
+            {tActions('undo')}
+          </ToastAction>
+        ),
+      });
+    } catch {
+      toast({ title: t('errors.hideFailed'), variant: 'destructive' });
+      setHiding(false);
+    }
+  };
 
   const handleDelete = async () => {
     const ok = await confirm(t('event.deleteConfirmTitle'), t('event.deleteConfirmBody'));
@@ -809,7 +862,7 @@ function EventDetailModal({ event, onClose, onEdit, onDeleted }: {
         <h2 className="text-xl font-bold mb-2">{event.title}</h2>
         <p className="text-sm text-muted-foreground mb-1">
           {event.allDay
-            ? d.weekdayLongMonthDay(toDisplayDate(event.startTime, displayTimezone))
+            ? d.weekdayLongMonthDay(eventStartDisplayDate(event.startTime, true))
             : t('dateAtTime', {
                 date: d.weekdayLongMonthDay(toDisplayDate(event.startTime, displayTimezone)),
                 time: formatDisplayTime(event.startTime, timeFormat, {}, displayTimezone),
@@ -832,6 +885,33 @@ function EventDetailModal({ event, onClose, onEdit, onDeleted }: {
           />
         )}
         <p className="text-xs text-muted-foreground">{event.calendarName}</p>
+        {canHide && (
+          <label className="flex items-start gap-3 mt-4 cursor-pointer">
+            <Checkbox
+              checked={hiding || choosingScope}
+              disabled={hiding}
+              onCheckedChange={(checked) => {
+                if (checked !== true) setChoosingScope(false);
+                else if (event.inSeries) setChoosingScope(true);
+                else handleHide('event');
+              }}
+            />
+            <span className="text-sm">
+              <span className="block font-medium">{t('event.hideInPrism')}</span>
+              <span className="block text-muted-foreground">{t('event.hideInPrismHint')}</span>
+            </span>
+          </label>
+        )}
+        {canHide && choosingScope && (
+          <div className="flex flex-wrap gap-2 mt-3 ml-9">
+            <Button size="sm" variant="outline" disabled={hiding} onClick={() => handleHide('event')}>
+              {t('event.hideThisEvent')}
+            </Button>
+            <Button size="sm" variant="outline" disabled={hiding} onClick={() => handleHide('series')}>
+              {t('event.hideWholeSeries')}
+            </Button>
+          </div>
+        )}
         <div className="flex justify-between mt-6">
           <Button variant="destructive" onClick={handleDelete}>
             {tActions('delete')}
@@ -853,9 +933,6 @@ const PRIORITY_COLORS = {
   low: '#3b82f6',
 } as const;
 
-const CHORE_PENDING_APPROVAL_COLOR = '#a855f7';
-const CHORE_OVERDUE_COLOR = '#ef4444';
-const CHORE_PENDING_COLOR = '#f59e0b';
 const MEAL_FALLBACK_COLOR = '#10b981';
 
 /**
@@ -921,23 +998,7 @@ function CalendarDragPreview({
     } else if (variant === 'chore') {
       const chore = bucket.chores.find((c) => String(c.id) === itemId);
       if (chore) {
-        // Parse nextDue (YYYY-MM-DD DATE column) as a local date and compare
-        // to startOfDay(today). new Date('YYYY-MM-DD') is parsed as UTC and
-        // would mark today's chore as overdue in negative-UTC zones — same
-        // bug fixed in DayColumn.choreStripeColor and useDayBucketsForRange.
-        let isOverdue = false;
-        if (chore.nextDue) {
-          const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(chore.nextDue);
-          if (m) {
-            const due = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-            isOverdue = due < startOfDay(new Date());
-          }
-        }
-        const stripeColor = chore.pendingApproval
-          ? CHORE_PENDING_APPROVAL_COLOR
-          : isOverdue
-            ? CHORE_OVERDUE_COLOR
-            : CHORE_PENDING_COLOR;
+        const stripeColor = choreStripeColor(chore, displayTimezone);
         return (
           <div className="w-56 opacity-90">
             <WeekItemCard

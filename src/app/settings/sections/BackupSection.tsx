@@ -16,6 +16,9 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useBackups } from '@/lib/hooks/useBackups';
+import { useTimeFormat } from '@/components/providers';
+import { formatDisplayDateTime } from '@/lib/utils/timeFormat';
+import { DemoDataCard } from './DemoDataCard';
 
 type DangerStep = null | 'warn-truncate' | 'confirm-truncate' | 'warn-seed' | 'confirm-seed';
 
@@ -40,6 +43,11 @@ export function BackupSection() {
     truncateDatabase,
     seedDatabase,
   } = useBackups();
+
+  // Formatted here rather than by the server, whose clock may be in another
+  // zone (UTC on a default Docker install).
+  const { timeFormat, displayTimezone } = useTimeFormat();
+  const formatBackupTime = (iso: string) => formatDisplayDateTime(new Date(iso), timeFormat, displayTimezone);
 
   // Older ones are collapsed rather than dropped: nothing is deleted here, and
   // an old backup is still restorable. The list has no retention policy, so it
@@ -227,7 +235,7 @@ export function BackupSection() {
                     </span>
                     <span className="flex items-center gap-1">
                       <Clock className="h-3 w-3" />
-                      {backup.createdAtFormatted}
+                      {formatBackupTime(backup.createdAt)}
                     </span>
                   </div>
                 </div>
@@ -247,7 +255,7 @@ export function BackupSection() {
                   {confirmRestore === backup.filename ? (
                     <div className="flex items-center gap-2 p-2 bg-warning/10 rounded-lg">
                       <span className="text-xs text-warning max-w-48">
-                        This will overwrite all current data. Changes since {backup.createdAtFormatted} will be lost.
+                        This will overwrite all current data. Changes since {formatBackupTime(backup.createdAt)} will be lost.
                       </span>
                       <Button
                         variant="destructive"
@@ -343,6 +351,8 @@ export function BackupSection() {
         Backups contain all database data including family members, chores, tasks, calendar events, and settings.
         Restoring a backup will overwrite all current data.
       </p>
+
+      <DemoDataCard />
 
       {/* Danger Zone */}
       <div className="border border-destructive/40 rounded-lg p-4 space-y-4">

@@ -3,7 +3,8 @@
  * ENDPOINT: /api/birthdays/[id]
  * - GET:    Get a specific birthday by ID
  * - PATCH:  Update a specific birthday
- * - DELETE: Delete a specific birthday
+ * - DELETE: Delete a specific birthday (parents only; tombstoned so sync
+ *           does not re-add it, undone via /api/birthdays/dismissed/[id])
  *
  */
 
@@ -15,6 +16,10 @@ import { dismissBirthday } from '@/lib/services/birthday-detect';
 import { eq } from 'drizzle-orm';
 import { createBirthdaySchema, validateRequest } from '@/lib/validations';
 import { logError } from '@/lib/utils/logError';
+import { invalidateEntity } from '@/lib/cache/cacheKeys';
+import { getHouseholdTimezone } from '@/lib/householdTimezone';
+import { todayKey } from '@/lib/utils/zonedDate';
+import { birthdayOccurrence } from '@/lib/utils/birthdayOccurrence';
 
 /**
  * Route params type
@@ -58,25 +63,18 @@ export async function GET(
       );
     }
 
-    // Calculate age and days until
-    const birthDate = new Date(birthdayWithUser.birthDate);
-    const today = new Date();
-    const currentYear = today.getFullYear();
-    const age = currentYear - birthDate.getFullYear();
-
-    const nextBirthday = new Date(currentYear, birthDate.getMonth(), birthDate.getDate());
-    if (nextBirthday < today) {
-      nextBirthday.setFullYear(currentYear + 1);
-    }
-    const daysUntil = Math.ceil((nextBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    const occurrence = birthdayOccurrence(
+      birthdayWithUser.birthDate,
+      todayKey(await getHouseholdTimezone()),
+    );
 
     return NextResponse.json({
       id: birthdayWithUser.id,
       name: birthdayWithUser.name,
       birthDate: birthdayWithUser.birthDate,
-      age,
-      daysUntil,
-      nextBirthday: nextBirthday.toISOString().split('T')[0],
+      age: occurrence?.age ?? null,
+      daysUntil: occurrence?.daysUntil ?? null,
+      nextBirthday: occurrence?.nextBirthday ?? null,
       giftIdeas: birthdayWithUser.giftIdeas,
       sendCardDaysBefore: birthdayWithUser.sendCardDaysBefore,
       createdAt: birthdayWithUser.createdAt.toISOString(),
@@ -178,25 +176,18 @@ export async function PATCH(
       );
     }
 
-    // Calculate age and days until
-    const birthDate = new Date(updatedBirthdayWithUser.birthDate);
-    const today = new Date();
-    const currentYear = today.getFullYear();
-    const age = currentYear - birthDate.getFullYear();
-
-    const nextBirthday = new Date(currentYear, birthDate.getMonth(), birthDate.getDate());
-    if (nextBirthday < today) {
-      nextBirthday.setFullYear(currentYear + 1);
-    }
-    const daysUntil = Math.ceil((nextBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    const occurrence = birthdayOccurrence(
+      updatedBirthdayWithUser.birthDate,
+      todayKey(await getHouseholdTimezone()),
+    );
 
     return NextResponse.json({
       id: updatedBirthdayWithUser.id,
       name: updatedBirthdayWithUser.name,
       birthDate: updatedBirthdayWithUser.birthDate,
-      age,
-      daysUntil,
-      nextBirthday: nextBirthday.toISOString().split('T')[0],
+      age: occurrence?.age ?? null,
+      daysUntil: occurrence?.daysUntil ?? null,
+      nextBirthday: occurrence?.nextBirthday ?? null,
       giftIdeas: updatedBirthdayWithUser.giftIdeas,
       sendCardDaysBefore: updatedBirthdayWithUser.sendCardDaysBefore,
       createdAt: updatedBirthdayWithUser.createdAt.toISOString(),
@@ -235,6 +226,7 @@ export async function DELETE(
           name: birthdays.name,
           birthDate: birthdays.birthDate,
           eventType: birthdays.eventType,
+          source: birthdays.googleCalendarSource,
         })
         .from(birthdays)
         .where(eq(birthdays.id, id));
@@ -246,18 +238,22 @@ export async function DELETE(
         );
       }
 
-      // Tombstone first, then delete. Detection re-reads every calendar on
-      // each sync, so without this the row is simply re-added on the next run
-      // and the delete appears not to have worked.
-      await dismissBirthday({
-        name: existingBirthday.name,
-        birthDate: existingBirthday.birthDate,
-        eventType: existingBirthday.eventType,
-      });
+      // A synced birthday is tombstoned first: detection re-reads every
+      // calendar on each sync, so without this the row is simply re-added on
+      // the next run. A hand-entered one (no source) has nothing to come back
+      // from, so it is deleted outright and leaves no Removed entry behind.
+      if (existingBirthday.source !== null) {
+        await dismissBirthday({
+          name: existingBirthday.name,
+          birthDate: existingBirthday.birthDate,
+          eventType: existingBirthday.eventType,
+        });
+      }
 
       await db
         .delete(birthdays)
         .where(eq(birthdays.id, id));
+      await invalidateEntity('birthdays');
 
       return NextResponse.json({
         message: 'Birthday deleted successfully',
@@ -273,5 +269,5 @@ export async function DELETE(
         { status: 500 }
       );
     }
-  });
+  }, { permission: 'canModifySettings' });
 }

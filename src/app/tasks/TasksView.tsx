@@ -114,12 +114,12 @@ export function TasksView() {
   return (
     <PageWrapper>
       {/*
-        h-screen + flex-col + inner overflow-y-auto pins the SubpageHeader
+        h-page + flex-col + inner overflow-y-auto pins the SubpageHeader
         and FilterBar to the top so they don't scroll away when the user
         scrolls within a task list. Matches Chores, Shopping, Meals.
         Was `h-full` which left the page-level scroll unconstrained.
       */}
-      <div className="h-screen flex flex-col">
+      <div className="h-page flex flex-col">
         <SubpageHeader
           icon={<CheckSquare className="h-5 w-5 text-primary" />}
           title="Tasks"
@@ -230,7 +230,8 @@ export function TasksView() {
                   body: JSON.stringify({
                     title: task.title, description: task.description, priority: task.priority,
                     category: task.category, assignedTo: task.assignedTo?.id,
-                    dueDate: task.dueDate ? task.dueDate.toISOString() : undefined,
+                    dueDate: task.dueDate ?? undefined,
+                    dueTime: task.dueTime ?? undefined,
                     listId: task.listId,
                   }),
                 });
@@ -266,7 +267,8 @@ export function TasksView() {
                     title: updatedTask.title, description: updatedTask.description, priority: updatedTask.priority,
                     category: updatedTask.category, assignedTo: updatedTask.assignedTo?.id,
                     // null forwards as JSON null and triggers the server-side clear branch.
-                    dueDate: updatedTask.dueDate === null ? null : updatedTask.dueDate.toISOString(),
+                    dueDate: updatedTask.dueDate,
+                    dueTime: updatedTask.dueTime,
                     completed: updatedTask.completed,
                     listId: updatedTask.listId,
                   }),

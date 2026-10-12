@@ -124,6 +124,7 @@ export function useCalendarEvents(
           recurrenceRule?: string | null;
           reminderMinutes?: number | null;
           showOnPlanner?: boolean;
+          inSeries?: boolean;
           calendarSource?: {
             id: string;
             name: string;
@@ -142,6 +143,7 @@ export function useCalendarEvents(
           recurrenceRule: event.recurrenceRule,
           reminderMinutes: event.reminderMinutes,
           showOnPlanner: event.showOnPlanner,
+          inSeries: event.inSeries,
           calendarName: event.calendarSource?.name || 'Local Calendar',
           calendarId: event.calendarSource?.id || 'local',
         })
