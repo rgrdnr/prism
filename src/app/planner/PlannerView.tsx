@@ -1,7 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
+import { useLocalCopy } from '@/lib/hooks/useLocalCopy';
 import { format, isSameDay, isBefore, startOfDay } from 'date-fns';
 import { addMonths } from 'date-fns';
 import {
@@ -98,8 +99,8 @@ export function PlannerView() {
   const { recipes } = useRecipes({ limit: 100 });
   const { timeFormat, displayTimezone } = useTimeFormat();
 
-  const [noteDraft, setNoteDraft] = useState('');
-  useEffect(() => setNoteDraft(note?.content || ''), [note?.content]);
+  // Typed into right away; starts over when the saved note changes.
+  const [noteDraft, setNoteDraft] = useLocalCopy(note?.content || '');
   const noteSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleNoteChange = (value: string) => {
     setNoteDraft(value);

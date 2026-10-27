@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { isPast, parseISO } from 'date-fns';
 import { useAuth, useFamily } from '@/components/providers';
 import { useChores } from '@/lib/hooks';
@@ -8,7 +8,10 @@ import { toast } from '@/components/ui/use-toast';
 
 import { useConfirmDialog } from '@/lib/hooks/useConfirmDialog';
 import { usePersistedState, useSessionScopedState, oneOf, isBoolean, isStringArray } from '@/lib/hooks/usePersistedState';
+import { useNow } from '@/lib/hooks/useNow';
 import type { Chore } from '@/types';
+import { useFetchOnMount } from '@/lib/hooks/useFetchOnMount';
+import { useLocalCopy } from '@/lib/hooks/useLocalCopy';
 
 export interface ChoreCompletion {
   id: string;
@@ -36,7 +39,14 @@ export function useChoresViewData() {
 
   const { members: familyMembers } = useFamily();
 
-  const [chores, setChores] = useState<Chore[]>([]);
+  // The API's dates can arrive as strings.
+  const normalizedChores = useMemo<Chore[]>(() => apiChores.map(c => ({
+    ...c,
+    createdAt: c.createdAt instanceof Date ? c.createdAt : new Date(c.createdAt),
+    pendingApproval: c.pendingApproval,
+  })), [apiChores]);
+  // Changed optimistically (enable, delete); starts over on refresh.
+  const [chores, setChores] = useLocalCopy(normalizedChores);
   // Narrowing choice — kept across a refresh, forgotten once the display has
   // been idle, so nobody walks up to a board that silently hides most of it.
   const [filterPerson, setFilterPerson] = useSessionScopedState<string[] | null>(
@@ -76,22 +86,15 @@ export function useChoresViewData() {
     }
   }, []);
 
-  useEffect(() => {
-    if (showCompletions && completions.length === 0) {
-      fetchCompletions();
-    }
+  // Load the history the first time it is shown.
+  const loadCompletionsWhenShown = useCallback(async () => {
+    if (showCompletions && completions.length === 0) await fetchCompletions();
   }, [showCompletions, completions.length, fetchCompletions]);
+  useFetchOnMount(loadCompletionsWhenShown);
 
-  useEffect(() => {
-    if (apiChores.length > 0) {
-      setChores(apiChores.map(c => ({
-        ...c,
-        createdAt: c.createdAt instanceof Date ? c.createdAt : new Date(c.createdAt),
-        pendingApproval: c.pendingApproval,
-      })));
-    }
-  }, [apiChores]);
 
+  // Ticks, so "hide completed" lets a chore back in once its 24 hours are up.
+  const now = useNow();
   const filteredChores = useMemo(() => {
     let result = [...chores];
     if (filterPerson && filterPerson.length > 0) {
@@ -104,7 +107,7 @@ export function useChoresViewData() {
       result = result.filter((chore) => chore.enabled);
     }
     if (hideCompleted) {
-      const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+      const oneDayAgo = now.getTime() - 24 * 60 * 60 * 1000;
       result = result.filter((chore) => {
         if (!chore.lastCompleted) return true;
         return new Date(chore.lastCompleted).getTime() <= oneDayAgo;
@@ -128,7 +131,7 @@ export function useChoresViewData() {
       }
     });
     return result;
-  }, [chores, filterPerson, filterCategory, showDisabled, hideCompleted, sortBy]);
+  }, [chores, filterPerson, filterCategory, showDisabled, hideCompleted, sortBy, now]);
 
   const completeChore = async (choreId: string): Promise<boolean> => {
     const chore = chores.find((c) => c.id === choreId);

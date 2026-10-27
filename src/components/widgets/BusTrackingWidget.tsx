@@ -6,6 +6,9 @@ import { cn } from '@/lib/utils';
 import { WidgetContainer, WidgetEmpty } from './WidgetContainer';
 import { useBusTracking } from '@/lib/hooks/useBusTracking';
 import type { BusRouteStatus, BusPrediction } from '@/lib/hooks/useBusTracking';
+import { pickLiveTrack, useBusLive } from '@/lib/hooks/useBusLive';
+import { useNow } from '@/lib/hooks/useNow';
+import { BusLiveView } from './bus/BusLiveView';
 
 function formatMinutes(m: number): string {
   if (m < 60) return `${m}m`;
@@ -22,10 +25,29 @@ export interface BusTrackingWidgetProps {
 
 export const BusTrackingWidget = React.memo(function BusTrackingWidget({ className, gridW }: BusTrackingWidgetProps) {
   const { routes, allRoutes, loading, error } = useBusTracking();
+  const live = useBusLive(allRoutes.length > 0);
   const isCompact = !gridW || gridW < 12;
+
+  // A live trip takes the whole widget, whatever its scheduled window says.
+  // useNow ticks, so a trip that ends between polls stops taking the widget.
+  const now = useNow();
+  const liveTrack = pickLiveTrack(live.tracks, now.getTime() + live.clockOffsetMs);
 
   // In compact mode, show only the most relevant route (closest to scheduled time)
   const displayRoutes = isCompact ? getBestRoute(routes) : routes;
+
+  if (liveTrack) {
+    return (
+      <WidgetContainer
+        title={liveTrack.routeLabel}
+        icon={<Bus className="h-4 w-4" />}
+        size="medium"
+        className={className}
+      >
+        <BusLiveView track={liveTrack} speedUnit={live.speedUnit} clockOffsetMs={live.clockOffsetMs} mapStyle={live.mapStyle} camera={live.camera} />
+      </WidgetContainer>
+    );
+  }
 
   return (
     <WidgetContainer

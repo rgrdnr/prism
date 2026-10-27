@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -12,6 +12,7 @@ import { parentCanResetPin } from '@/lib/auth/pinReset';
 import { DEFAULT_PIN_LENGTH } from '@/lib/constants';
 import { PinEditModal } from '../components/PinEditModal';
 import type { FamilyMember } from '../components/PinEditModal';
+import { useFetchOnMount } from '@/lib/hooks/useFetchOnMount';
 
 interface ApiToken {
   id: string;
@@ -21,15 +22,17 @@ interface ApiToken {
   createdAt: string;
 }
 
-type TokenScopeChoice = 'voice' | '*';
+type TokenScopeChoice = 'voice' | 'bus:ingest' | '*';
 
 const SCOPE_LABELS: Record<TokenScopeChoice, string> = {
   voice: 'Voice API only (recommended)',
+  'bus:ingest': 'Live bus position provider',
   '*': 'Full access (legacy)',
 };
 
 const SCOPE_DESCRIPTIONS: Record<TokenScopeChoice, string> = {
   voice: 'Limited to /api/v1/voice/* — for Alexa skills, Home Assistant, voice agents.',
+  'bus:ingest': 'Can only post bus positions to /api/bus-tracking/live/ingest.',
   '*': 'Grants parent-level access to every endpoint. Use only for tools that need full control.',
 };
 
@@ -66,7 +69,7 @@ export function SecuritySection() {
     }
   }, []);
 
-  useEffect(() => { loadWall(); }, [loadWall]);
+  useFetchOnMount(loadWall);
 
   const saveAuthWall = useCallback(async (next: boolean) => {
     setWallSaving(true);
@@ -114,9 +117,7 @@ export function SecuritySection() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchTokens();
-  }, [fetchTokens]);
+  useFetchOnMount(fetchTokens);
 
   const handleCreateToken = async () => {
     if (!newTokenName.trim()) return;
@@ -305,7 +306,7 @@ export function SecuritySection() {
                 onChange={(e) => setNewTokenScope(e.target.value as TokenScopeChoice)}
                 aria-label="Token scope"
               >
-                {(['voice', '*'] as const).map((scope) => (
+                {(['voice', 'bus:ingest', '*'] as const).map((scope) => (
                   <option key={scope} value={scope}>{SCOPE_LABELS[scope]}</option>
                 ))}
               </select>

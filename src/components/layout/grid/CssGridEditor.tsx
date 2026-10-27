@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useRef, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback } from 'react';
+import { useLatestRef } from '@/lib/hooks/useLatestRef';
 import {
   DndContext,
   useDraggable,
@@ -13,7 +14,9 @@ import {
   type DragStartEvent,
   type Modifier,
 } from '@dnd-kit/core';
+import { Moon } from 'lucide-react';
 import { WidgetBgOverrideProvider } from '@/components/widgets/WidgetContainer';
+import { shownWhenIdle } from '@/components/screensaver/calmMode';
 import { getWidgetStyle, getWidgetContentStyle, getTextColorClass } from './gridWidgetStyles';
 import type { EditorTheme } from './gridEditorTypes';
 import type { WidgetConfig } from '@/lib/hooks/useLayouts';
@@ -36,6 +39,11 @@ export interface CssGridEditorProps {
   selectedWidget: string | null;
   onSelectWidget: (id: string | null) => void;
   theme: EditorTheme;
+  /**
+   * Calm dashboards (#691): put a Stays / Fades switch on each widget, so what
+   * the idle screen keeps is set where the widgets are.
+   */
+  idleToggles?: boolean;
 }
 
 export function CssGridEditor({
@@ -52,6 +60,7 @@ export function CssGridEditor({
   selectedWidget,
   onSelectWidget,
   theme,
+  idleToggles = false,
 }: CssGridEditorProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState<EditMode>('move');
@@ -60,19 +69,17 @@ export function CssGridEditor({
     x: number; y: number; w: number; h: number;
   } | null>(null);
 
-  const layoutRef = useRef(layout);
-  layoutRef.current = layout;
+  // Read by the drag and resize handlers, which outlive the render they start in.
+  const layoutRef = useLatestRef(layout);
 
   const step = cellSize + margin;
 
   // Custom grid snap modifier — snaps drag overlay to grid cells
-  const stepRef = useRef(step);
-  stepRef.current = step;
   const gridSnapModifier: Modifier = useCallback(({ transform }) => ({
     ...transform,
-    x: Math.round(transform.x / stepRef.current) * stepRef.current,
-    y: Math.round(transform.y / stepRef.current) * stepRef.current,
-  }), []);
+    x: Math.round(transform.x / step) * step,
+    y: Math.round(transform.y / step) * step,
+  }), [step]);
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
@@ -123,11 +130,17 @@ export function CssGridEditor({
       return w;
     });
     onLayoutChange(updated);
-  }, [step, onLayoutChange]);
+  }, [step, onLayoutChange, layoutRef]);
 
   const handleDragCancel = useCallback(() => {
     setActiveId(null);
   }, []);
+
+  // Stores the choice on the widget even when it matches the default, so a
+  // later change to the defaults leaves a widget someone set alone.
+  const handleToggleIdle = useCallback((id: string) => {
+    onLayoutChange(layoutRef.current.map(w => w.i === id ? { ...w, showWhenIdle: !shownWhenIdle(w) } : w));
+  }, [onLayoutChange, layoutRef]);
 
   // Resize via pointer events on handles
   const handleResizeStart = useCallback((widgetId: string, edge: ResizeEdge, e: React.PointerEvent) => {
@@ -140,7 +153,7 @@ export function CssGridEditor({
     const orig = { x: widget.x, y: widget.y, w: widget.w, h: widget.h };
     const startX = e.clientX;
     const startY = e.clientY;
-    const currentStep = stepRef.current;
+    const currentStep = step;
 
     setResizePreview({ widgetId, ...orig });
 
@@ -189,7 +202,7 @@ export function CssGridEditor({
 
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
-  }, [widgetConstraints, onLayoutChange]);
+  }, [widgetConstraints, onLayoutChange, layoutRef, step]);
 
   // Get widget position — may be overridden during resize
   const getWidgetPos = useCallback((w: WidgetConfig) => {
@@ -233,6 +246,7 @@ export function CssGridEditor({
             onResizeStart={handleResizeStart}
             renderWidget={renderWidget}
             theme={theme}
+            onToggleIdle={idleToggles ? handleToggleIdle : undefined}
           />
         ))}
       </div>
@@ -297,6 +311,7 @@ interface DraggableWidgetProps {
   onResizeStart: (widgetId: string, edge: ResizeEdge, e: React.PointerEvent) => void;
   renderWidget: (widget: WidgetConfig) => React.ReactNode;
   theme: EditorTheme;
+  onToggleIdle?: (id: string) => void;
 }
 
 function DraggableWidget({
@@ -309,6 +324,7 @@ function DraggableWidget({
   onResizeStart,
   renderWidget,
   theme,
+  onToggleIdle,
 }: DraggableWidgetProps) {
   const inMoveMode = isSelected && editMode === 'move';
   const inResizeMode = isSelected && editMode === 'resize';
@@ -334,6 +350,7 @@ function DraggableWidget({
   return (
     <div
       ref={setNodeRef}
+      data-editor-widget={widget.i}
       className={`relative ${inResizeMode ? '' : 'cursor-grab active:cursor-grabbing'} ${ringClass} ${isDragging ? 'opacity-30' : ''}`}
       style={{
         gridColumn: `${pos.x + 1} / span ${pos.w}`,
@@ -400,11 +417,41 @@ function DraggableWidget({
         </div>
       )}
 
+      {/* Idle switch, on the top edge at the right. Off in resize mode, where that corner is a handle. */}
+      {onToggleIdle && !inResizeMode && !isDragging && (
+        <IdleToggle stays={shownWhenIdle(widget)} onToggle={() => onToggleIdle(widget.i)} />
+      )}
+
       {/* Resize handles — only visible in resize mode, much larger for touch */}
       {inResizeMode && (
         <ResizeHandles widgetId={widget.i} onResizeStart={onResizeStart} />
       )}
     </div>
+  );
+}
+
+// Whether a widget stays on the calm idle screen. Its own button, so a tap
+// changes only this and does not select, drag or resize the widget.
+function IdleToggle({ stays, onToggle }: { stays: boolean; onToggle: () => void }) {
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  return (
+    <button
+      type="button"
+      data-idle-toggle
+      aria-pressed={stays}
+      title={stays ? 'Stays on screen when idle. Tap to fade it.' : 'Fades out when idle. Tap to keep it.'}
+      className={`absolute -top-2.5 right-3 z-30 flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] leading-4 font-medium shadow-xs touch-manipulation ${
+        stays ? 'bg-primary text-primary-foreground' : 'bg-neutral-600 text-white'
+      }`}
+      onClick={(e) => { e.stopPropagation(); onToggle(); }}
+      onPointerDown={stop}
+      onMouseDown={stop}
+      onTouchStart={stop}
+    >
+      <Moon className={`h-3.5 w-3.5 ${stays ? 'fill-current' : ''}`} aria-hidden />
+      {stays ? 'Stays' : 'Fades'}
+      <span className="sr-only"> when idle</span>
+    </button>
   );
 }
 

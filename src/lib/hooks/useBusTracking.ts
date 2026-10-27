@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useVisibilityPolling } from './useVisibilityPolling';
+import { useNow } from './useNow';
 import { useTimeFormat } from '@/components/providers';
 import { todayKey, wallTimeToday, weekdayOfKey } from '@/lib/utils/zonedDate';
+import { useFetchOnMount } from './useFetchOnMount';
 
 export interface BusCheckpoint {
   name: string;
@@ -65,22 +67,24 @@ export function isRouteVisible(route: BusRouteStatus, timeZone: string, now: Dat
 }
 
 /**
+ * With no route in its window, still look every few minutes: a display is
+ * rarely reloaded, and a route set up after it loaded must still turn up.
+ */
+export const IDLE_POLL_MS = 5 * 60_000;
+
+/**
  * Determine adaptive polling interval based on bus route statuses.
- * Outside bus window: 0 (disabled)
+ * Outside bus window: IDLE_POLL_MS
  * No checkpoint: 60s
  * In transit, ETA > 10min: 30s
  * In transit, ETA 5-10min: 15s
  * In transit, ETA 3-5min: 10s
  * In transit, ETA <= 3min: 5s
  */
-function getPollingInterval(routes: BusRouteStatus[]): number {
-  if (routes.length === 0) return 0;
-
-  // Check if any route is within its bus window
+export function getPollingInterval(routes: BusRouteStatus[]): number {
   // Already filtered to the visible routes by the caller.
+  if (routes.length === 0) return IDLE_POLL_MS;
   const activeRoutes = routes;
-
-  if (activeRoutes.length === 0) return 0; // Outside bus window
 
   // Find the most urgent ETA among active routes
   let minEta = Infinity;
@@ -128,14 +132,14 @@ export function useBusTracking() {
   }, []);
 
   // Initial fetch
-  useEffect(() => {
-    fetchStatus();
-  }, [fetchStatus]);
+  useFetchOnMount(fetchStatus);
 
-  // Filter to routes that are active today and within the ±60 min display window
+  // Filter to routes that are active today and within the ±60 min display
+  // window, again every minute: a window opens without any new data arriving.
+  const now = useNow();
   const visibleRoutes = useMemo(
-    () => routes.filter((route) => isRouteVisible(route, householdTimezone)),
-    [routes, householdTimezone],
+    () => routes.filter((route) => isRouteVisible(route, householdTimezone, now)),
+    [routes, householdTimezone, now],
   );
 
   // Adaptive polling

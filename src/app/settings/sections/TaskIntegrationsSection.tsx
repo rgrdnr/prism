@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { toast } from '@/components/ui/use-toast';
 import {
   Plus,
@@ -34,6 +34,7 @@ import {
   ConfirmDialog,
 } from './integrations/components';
 import { browserOAuthUsable } from '@/lib/utils/googleRedirectSupport';
+import { useOrigin } from '@/lib/hooks/useOrigin';
 
 interface TaskIntegrationsSectionProps {
   /** Hide the section header (h2 + description) when rendered inside a card sub-section. */
@@ -74,16 +75,15 @@ export function TaskIntegrationsSection({
   // Google's browser sign-in cannot work from a private address — it refuses
   // the redirect URI before showing a consent screen. Checked after mount so
   // the server render does not disagree with the client.
-  const [origin, setOrigin] = useState<string | null>(null);
-  useEffect(() => setOrigin(window.location.origin), []);
+  const origin = useOrigin();
   const googleBrowserFlowUnusable =
     providerFilter === 'google_tasks' && origin !== null && !browserOAuthUsable(origin);
 
   const handleConnectEntity = (entityId: string) => {
     if (providerFilter === 'microsoft_todo') {
-      window.location.href = `/api/auth/microsoft-tasks?taskListId=${entityId}&returnSection=integrations`;
+      window.location.assign(`/api/auth/microsoft-tasks?taskListId=${entityId}&returnSection=integrations`);
     } else if (providerFilter === 'google_tasks') {
-      window.location.href = `/api/auth/google-tasks?taskListId=${entityId}&returnSection=integrations`;
+      window.location.assign(`/api/auth/google-tasks?taskListId=${entityId}&returnSection=integrations`);
     } else {
       integration.handleConnectProvider(entityId);
     }
@@ -247,9 +247,8 @@ export function TaskIntegrationsSection({
       setShowNewListModal(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create list';
-      if (message.includes('401') || message.includes('unauthorized')) {
-        toast({ title: 'Please log in first to create a task list.', variant: 'warning' });
-      } else {
+      // Not signed in: AuthProvider has already opened the PIN box.
+      if (!/401|unauthorized/i.test(message)) {
         toast({ title: message, variant: 'destructive' });
       }
     } finally {
@@ -480,13 +479,13 @@ export function TaskIntegrationsSection({
         onSelectMsTodo={msConfigured ? () => {
           integration.setShowProviderPickerModal(false);
           if (integration.connectingEntityId) {
-            window.location.href = `/api/auth/microsoft-tasks?taskListId=${integration.connectingEntityId}`;
+            window.location.assign(`/api/auth/microsoft-tasks?taskListId=${integration.connectingEntityId}`);
           }
         } : undefined}
         onSelectGoogleTasks={googleConfigured ? () => {
           integration.setShowProviderPickerModal(false);
           if (integration.connectingEntityId) {
-            window.location.href = `/api/auth/google-tasks?taskListId=${integration.connectingEntityId}`;
+            window.location.assign(`/api/auth/google-tasks?taskListId=${integration.connectingEntityId}`);
           }
         } : undefined}
         disabledProviders={[

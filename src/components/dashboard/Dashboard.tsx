@@ -37,14 +37,17 @@ const MealModal = lazy(() => import('@/app/meals/MealsView').then(m => ({ defaul
 import { WIDGET_REGISTRY } from '@/components/widgets/widgetRegistry';
 import { renderScreensaverPreview } from '@/components/screensaver/ScreensaverWidgetPreview';
 import { SCREENSAVER_WIDGET_CLASS } from '@/components/screensaver/Screensaver';
-import type { WidgetConfig } from '@/lib/hooks/useLayouts';
+import type { ScreensaverMode, WidgetConfig } from '@/lib/hooks/useLayouts';
 import { WidgetErrorBoundary } from '@/components/dashboard/WidgetErrorBoundary';
 import { WidgetExpandProvider, useWidgetExpand } from '@/components/dashboard/WidgetExpandProvider';
 import { useDashboardData } from './useDashboardData';
-import { useDashboardLayout } from './useDashboardLayout';
+import { useDashboardLayout, editLink } from './useDashboardLayout';
 import { buildWidgetProps } from './useWidgetProps';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useConfirmDialog } from '@/lib/hooks/useConfirmDialog';
+import { useLocalCopy } from '@/lib/hooks/useLocalCopy';
+import { setActiveScreensaverMode, shownWhenIdle, useCalmIdle } from '@/components/screensaver/calmMode';
+import { useScreensaverMotion } from '@/components/screensaver/useScreensaverMotion';
 
 class WidgetBoundary extends React.Component<
   { name: string; children: React.ReactNode },
@@ -152,20 +155,40 @@ export function Dashboard({
   // Grid control state shared between LayoutEditor toolbar and LayoutGridEditor
   const { allSizeNames } = useScreenSafeZones();
 
-  // Orientation from active layout (DB), fallback to landscape
-  const [screenGuideOrientation, setScreenGuideOrientationState] = useState<'landscape' | 'portrait'>(() => {
-    const fromLayout = layout.activeLayout?.orientation;
-    if (fromLayout === 'portrait' || fromLayout === 'landscape') return fromLayout;
-    return 'landscape';
-  });
-
-  // Sync orientation when active layout changes
+  // Calm mode (#691): tell the Screensaver this dashboard is its own idle
+  // screen, and take it back when the dashboard goes, so other pages still get
+  // the ordinary screensaver. The phone layout has no calm idle state.
+  const screensaverMode = isMobile ? 'separate' : layout.activeLayout?.screensaverMode ?? 'separate';
   useEffect(() => {
-    const fromLayout = layout.activeLayout?.orientation;
-    if (fromLayout === 'portrait' || fromLayout === 'landscape') {
-      setScreenGuideOrientationState(fromLayout);
+    setActiveScreensaverMode(screensaverMode);
+    return () => setActiveScreensaverMode('separate');
+  }, [screensaverMode]);
+  const setScreensaverMode = useCallback(async (mode: ScreensaverMode) => {
+    const active = layout.activeLayout;
+    if (!active) return;
+    try {
+      await data.layouts.saveLayout({ id: active.id, name: active.name, widgets: active.widgets, screensaverMode: mode });
+    } catch (err) {
+      console.error('Failed to save the screensaver mode:', err);
     }
-  }, [layout.activeLayout?.orientation]);
+  }, [layout.activeLayout, data.layouts]);
+  const calmIdle = useCalmIdle() && !layout.isEditing;
+  const fadedIds = useMemo(
+    () => calmIdle ? new Set(layout.activeWidgets.filter(w => !shownWhenIdle(w)).map(w => w.i)) : undefined,
+    [calmIdle, layout.activeWidgets],
+  );
+  // The widgets that stay drift while idle, so a screen that shows the same
+  // board all night does not hold every edge on the same pixels (part 2).
+  const { drift } = useScreensaverMotion();
+  const idleDrift = calmIdle && drift;
+
+  // Orientation from active layout (DB), fallback to landscape
+  // A choice made here holds until the active layout's orientation changes.
+  const fromLayout = layout.activeLayout?.orientation;
+  const [chosenOrientation, setScreenGuideOrientationState] = useLocalCopy<'landscape' | 'portrait' | null>(
+    fromLayout === 'portrait' || fromLayout === 'landscape' ? fromLayout : null,
+  );
+  const screenGuideOrientation = chosenOrientation ?? 'landscape';
 
   const setScreenGuideOrientation = useCallback(async (o: 'landscape' | 'portrait') => {
     setScreenGuideOrientationState(o);
@@ -180,7 +203,7 @@ export function Dashboard({
         });
       } catch { /* ignore */ }
     }
-  }, [layout.activeLayout, data.layouts]);
+  }, [layout.activeLayout, data.layouts, setScreenGuideOrientationState]);
 
   const [enabledSizes, setEnabledSizes] = useState<string[]>(allSizeNames);
   const [gridScrollY, setGridScrollY] = useState(0);
@@ -207,8 +230,10 @@ export function Dashboard({
   }, []);
 
   // Dashboard management callbacks for LayoutEditor
+  // Only offered inside the layout editor, so the next dashboard opens in edit
+  // mode too.
   const handleSwitchDashboard = useCallback((targetSlug: string) => {
-    router.push(`/d/${targetSlug}`);
+    router.push(editLink(`/d/${targetSlug}`));
   }, [router]);
 
   const handleCreateDashboard = useCallback(async (name: string, startFrom: 'blank' | 'template' | 'copy') => {
@@ -381,6 +406,8 @@ export function Dashboard({
             screensaverPresets={layout.ssPresets}
             onSelectScreensaverPreset={layout.handleSelectSsPreset}
             onDeleteScreensaverPreset={layout.handleDeleteSsPreset}
+            screensaverMode={layout.activeLayout ? screensaverMode : undefined}
+            onScreensaverModeChange={setScreensaverMode}
             screenGuideOrientation={screenGuideOrientation}
             onScreenGuideOrientationChange={setScreenGuideOrientation}
             enabledSizes={enabledSizes}
@@ -412,6 +439,7 @@ export function Dashboard({
             bottomOffset={bottomOffset}
             minVisibleRows={8}
             theme={SCREENSAVER_THEME}
+            previewFit="contain"
             gridHelperText="Drag widgets to reposition &bull; Scroll to see more"
             className="mx-4"
             screenGuideOrientation={screenGuideOrientation}
@@ -427,6 +455,9 @@ export function Dashboard({
                 onLayoutChange={layout.isEditing ? layout.setEditingWidgets : () => {}}
                 isEditable={layout.isEditing}
                 renderWidget={renderDashboardWidget}
+                fadedIds={fadedIds}
+                drift={idleDrift}
+                idleToggles={layout.isEditing && screensaverMode === 'calm'}
                 widgetConstraints={dashboardConstraints}
                 margin={8}
                 headerOffset={layout.isEditing ? 140 : uiHidden ? 0 : 56}

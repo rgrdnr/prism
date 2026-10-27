@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useVisibilityPolling } from '@/lib/hooks/useVisibilityPolling';
+import { useFetchOnMount } from '@/lib/hooks/useFetchOnMount';
 
 export interface GuideProgram {
   title: string;
@@ -79,9 +80,7 @@ export function useTvGuide() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useFetchOnMount(load);
   useVisibilityPolling(load, REFRESH_INTERVAL_MS);
 
   // Drive the progress bars, and refetch as soon as any "now playing" slot ends
@@ -92,9 +91,10 @@ export function useTvGuide() {
   }, []);
 
   const anyEnded = channels.some((c) => c.current && Date.parse(c.current.end) <= now);
-  useEffect(() => {
-    if (anyEnded) load();
+  const refetchIfEnded = useCallback(async () => {
+    if (anyEnded) await load();
   }, [anyEnded, load]);
+  useFetchOnMount(refetchIfEnded);
 
   return { channels, loading, serviceUnavailable, now, refresh: load };
 }

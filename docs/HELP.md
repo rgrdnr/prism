@@ -138,11 +138,11 @@ Auto-enabled on devices reporting ≤2 GB RAM or ≤4 CPU cores. Stretches polli
 A short tour of *Settings*. (Each section's deep behavior is documented in the linked feature pages above where relevant.)
 
 - **Account & Profile**: current session and default display user.
-- **Family Members**: add / edit / remove members. Names, colors, avatars, roles, sort order.
+- **Family Members**: add / edit / remove members. Names, colors, avatars, roles, sort order. Pick a color from the 18 presets, or tap the rainbow swatch to pick any color with the sliders or a color code, then Done. The panel shows the color beside every other member's. Colors another member already uses, preset or custom, show that member's initial; they can still be shared.
 - **General**: weather location (city or postal code), time zone, Week Starts On.
 - **Integrations**: one card per provider brand: Google (Calendar, Tasks), Microsoft (To Do, OneDrive), Gmail (bus tracking), Apple / CalDAV, Kroger (shopping cart push), plus Photo Sources. Per-list Task / Shopping / Wish List sync is mapped inside the Microsoft or Google provider card.
 - **Text Size**: how large everything reads on each dashboard.
-- **Appearance**: Color Scheme (Light / Dark / System), Theme Palette, Seasonal Theme, Performance Mode, Screensaver (start delay, photo rotation, widget transition effect and its options, drift), Auto-Hide Navigation / Away Mode / sign-out timers, Orientation Override.
+- **Appearance**: Color Scheme (Light / Dark / System), Theme Palette, Seasonal Theme, Performance Mode, Screensaver (start delay, background: photos or night sky, photo rotation, widget transition effect and its options, drift), Auto-Hide Navigation / Away Mode / sign-out timers, Orientation Override.
 - **Photos**: manage sources (Local, OneDrive, Immich); folder picker; display filters (orientation, resolution); GPS backfill; pinned wallpaper / screensaver.
 - **Bus Tracking**: Gmail connection, route configuration, route auto-discovery, Gmail label filter.
 - **Input**: on-screen keyboard and barcode-scanner toggles. The keyboard has a household switch and a per-device choice (Use household setting / Always / Never), so a tablet can use its own keyboard while a wall display keeps Prism's.

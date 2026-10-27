@@ -3,6 +3,7 @@
 import { PopoverButton } from './LayoutEditorPopover';
 import { ChevronIcon } from './LayoutEditorIcons';
 import type { ActivePopover, DashboardInfo } from './LayoutEditorTypes';
+import type { ScreensaverMode } from '@/lib/hooks/useLayouts';
 
 interface ToolbarRightProps {
   editingScreensaver: boolean;
@@ -14,6 +15,8 @@ interface ToolbarRightProps {
   allDashboards: DashboardInfo[];
   currentDashboardId?: string;
   onToggleMeasureMode: () => void;
+  screensaverMode?: ScreensaverMode;
+  onScreensaverModeChange?: (mode: ScreensaverMode) => void;
   onToggleScreensaverEdit?: () => void;
   onSave: () => void;
   onSaveAs: () => void;
@@ -23,6 +26,8 @@ interface ToolbarRightProps {
   onExport: () => void;
   onImportOpen: () => void;
   onShareOpen: () => void;
+  /** Copy this layout over the other one (dashboard <-> screensaver). */
+  onCopyToOther?: () => void;
   onDeleteDashboard?: () => void;
   onHandleDelete: () => void;
 }
@@ -40,6 +45,8 @@ export function LayoutEditorToolbarRight({
   allDashboards,
   currentDashboardId,
   onToggleMeasureMode,
+  screensaverMode,
+  onScreensaverModeChange,
   onToggleScreensaverEdit,
   onSave,
   onSaveAs,
@@ -49,6 +56,7 @@ export function LayoutEditorToolbarRight({
   onExport,
   onImportOpen,
   onShareOpen,
+  onCopyToOther,
   onDeleteDashboard,
   onHandleDelete,
 }: ToolbarRightProps) {
@@ -62,6 +70,22 @@ export function LayoutEditorToolbarRight({
       >
         Preview
       </button>
+
+      {/* What the display shows when idle: this dashboard, or the separate
+          screensaver layout. Saved as soon as it is picked. */}
+      {!editingScreensaver && screensaverMode && onScreensaverModeChange && (
+        <label className="flex items-center gap-1 text-xs whitespace-nowrap">
+          When nobody&apos;s using it:
+          <select
+            value={screensaverMode}
+            onChange={(e) => onScreensaverModeChange(e.target.value as ScreensaverMode)}
+            className={`${btnClass} bg-muted hover:bg-accent`}
+          >
+            <option value="calm">Fade to a calm view of this dashboard</option>
+            <option value="separate">Show the screensaver</option>
+          </select>
+        </label>
+      )}
 
       {/* Screensaver toggle */}
       {onToggleScreensaverEdit && (
@@ -175,6 +199,17 @@ export function LayoutEditorToolbarRight({
           </button>
           <button onClick={onImportOpen} className={moreItemClass}>Import</button>
           <button onClick={onShareOpen} className={moreItemClass}>Share</button>
+          {onCopyToOther && (
+            <>
+              <div className="border-t border-border my-1" />
+              <button
+                onClick={() => { onCopyToOther(); onTogglePopover('more'); }}
+                className={moreItemClass}
+              >
+                {editingScreensaver ? 'Copy to dashboard' : 'Copy to screensaver'}
+              </button>
+            </>
+          )}
         </div>
       </PopoverButton>
 

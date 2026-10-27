@@ -19,6 +19,7 @@ import { TRIP_STYLE_CONFIG, STATUS_CONFIG, NPS_COLOR, EXPENSE_CATEGORY_CONFIG } 
 import { InlineChildAdd } from './InlineChildAdd';
 import { ExpenseModal } from './ExpenseModal';
 import { formatCurrency } from '../utils/formatCurrency';
+import { useLocalCopy } from '@/lib/hooks/useLocalCopy';
 
 interface TripDetailProps {
   trip: TravelTrip;
@@ -116,11 +117,10 @@ export function TripDetail({
   onDeleteStop, onReorderStops, onSelectStop, onEdit,
   onAddExpense, onUpdateExpense, onDeleteExpense,
 }: TripDetailProps) {
-  const [localStops, setLocalStops] = React.useState(stops);
+  // Reordered on screen before the save lands; starts over when stops refresh.
+  const [localStops, setLocalStops] = useLocalCopy(stops);
   const [deleting, setDeleting] = React.useState(false);
   const [expenseModal, setExpenseModal] = React.useState<{ mode: 'add' } | { mode: 'edit'; expense: TravelExpense } | null>(null);
-
-  React.useEffect(() => { setLocalStops(stops); }, [stops]);
 
   const sensors = useSensors(
     useSensor(MouseSensor),

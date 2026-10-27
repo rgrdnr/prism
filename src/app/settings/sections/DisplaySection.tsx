@@ -17,7 +17,8 @@ import { useWallpaperSettings, useAutoOrientationSetting, useScreensaverInterval
 import { useScreenOrientation } from '@/lib/hooks/useScreenOrientation';
 import { useOrientationOverride } from '../SettingsView';
 import { useScreensaverTimeout } from '@/lib/hooks/useScreensaverTimeout';
-import { useScreensaverMotion, type ScreensaverMotion, type ScreensaverDrift } from '@/components/screensaver/useScreensaverMotion';
+import { useScreensaverMotion, type ScreensaverMotion } from '@/components/screensaver/useScreensaverMotion';
+import { useScreensaverBackdrop, type ScreensaverBackdrop } from '@/components/screensaver/useScreensaverBackdrop';
 import { useIdleLogoutSetting, IDLE_LOGOUT_OPTIONS } from '@/lib/hooks/useIdleLogout';
 import { useAutoHideUI } from '@/lib/hooks/useAutoHideUI';
 import { useAwayModeTimeout } from '@/lib/hooks/useAwayModeTimeout';
@@ -376,13 +377,13 @@ function WeatherUnitsCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Weather units</CardTitle>
+        <CardTitle>Units</CardTitle>
         <CardDescription>
-          Imperial shows °F, mph, and inches. Metric shows °C, km/h, and mm. Applies to every place weather is rendered (widget, mobile cards, away mode, babysitter mode).
+          Imperial shows °F, mph, and inches. Metric shows °C, km/h, and mm. Applies to weather everywhere it is shown (widget, mobile cards, away mode, babysitter mode) and to the live bus speed.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="inline-flex rounded-md border border-input p-0.5" role="radiogroup" aria-label="Weather units">
+        <div className="inline-flex rounded-md border border-input p-0.5" role="radiogroup" aria-label="Units">
           <button
             type="button"
             role="radio"
@@ -462,10 +463,7 @@ function TimersCard() {
             </div>
             <Switch
               checked={autoHideEnabled}
-              onCheckedChange={(checked) => {
-                setAutoHideEnabled(checked);
-                window.dispatchEvent(new Event('prism:auto-hide-change'));
-              }}
+              onCheckedChange={setAutoHideEnabled}
             />
           </div>
         </div>
@@ -521,6 +519,7 @@ function ScreensaverCard() {
     shortcut, setShortcut, drift, setDrift,
     carbonation, setCarbonation, waterClear, setWaterClear, wobble, setWobble, speed, setSpeed,
   } = useScreensaverMotion();
+  const { backdrop, setBackdrop } = useScreensaverBackdrop();
 
   return (
     <Card id="screensaver-settings">
@@ -546,6 +545,24 @@ function ScreensaverCard() {
               <option value={0}>Never</option>
             </select>
           </div>
+          <div className="flex items-center gap-3 pl-2">
+            <span className="text-sm text-muted-foreground">Background</span>
+            <select
+              value={backdrop}
+              onChange={(e) => setBackdrop(e.target.value as ScreensaverBackdrop)}
+              className="border border-border rounded px-2 py-1 text-sm bg-background"
+            >
+              <option value="photos">Photos</option>
+              <option value="sky">Night sky</option>
+              <option value="skyAtNight">Photos by day, night sky after dark</option>
+            </select>
+          </div>
+          {backdrop !== 'photos' && (
+            <p className="text-xs text-muted-foreground pl-2">
+              The stars and moon as they are outside now, worked out from the location in
+              Settings &gt; General.
+            </p>
+          )}
           <div className="flex items-center gap-3 pl-2">
             <span className="text-sm text-muted-foreground">Widget transition effect</span>
             <select
@@ -666,23 +683,20 @@ function ScreensaverCard() {
               </div>
             </>
           )}
-          <div className="flex items-center gap-3 pl-2">
+          <label className="flex items-center gap-3 pl-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={drift}
+              onChange={(e) => setDrift(e.target.checked)}
+              className="rounded border-border"
+            />
             <span className="text-sm text-muted-foreground">Drift</span>
-            <select
-              value={drift}
-              onChange={(e) => setDrift(e.target.value as ScreensaverDrift)}
-              className="border border-border rounded px-2 py-1 text-sm bg-background"
-            >
-              <option value="off">Still</option>
-              <option value="breathe">Breathe</option>
-              <option value="ripple">Ripple</option>
-              <option value="figure8">Figure eight</option>
-            </select>
-          </div>
+          </label>
           <p className="text-xs text-muted-foreground pl-2">
-            Moves each widget slowly and out of step with the others, so no edge sits on
-            the same pixels for months. Periods are minutes long and the movement is a
-            few pixels — enough to spare the panel, not enough to notice.
+            Moves the widgets a few pixels in a slow figure eight while the display is
+            idle, so no edge or line of text sits on the same pixels for months. It
+            applies to the screensaver and to a dashboard that fades to a calm view of
+            itself.
           </p>
           <label className="flex items-center gap-3 pl-2 cursor-pointer">
             <input

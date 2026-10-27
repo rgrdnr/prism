@@ -59,6 +59,25 @@ export interface CssGridDisplayProps {
    * scale to fit any screen without clipping or distortion.
    */
   containMode?: boolean;
+  /**
+   * Contain mode only: the editor's Screen frame, in grid units. The canvas is
+   * at least this big, so a layout designed inside the frame maps the frame,
+   * not the widgets' own bounding box, onto the screen. Without it, widgets
+   * that stop short of the frame's edge were scaled up to fill the screen.
+   */
+  screenFrame?: { cols: number; rows: number };
+  /**
+   * Widgets to fade out in place: drawn at opacity 0 and untappable, but still
+   * part of the layout, so nothing else moves or resizes. Calm mode's idle
+   * state (#691).
+   */
+  fadedIds?: ReadonlySet<string>;
+  /**
+   * Slow burn-in drift, applied to each whole cell. On the cell, not inside
+   * it: the cell clips its content, so a card drifting inside it lost an edge
+   * of its outline to the clip on whichever side it had moved towards.
+   */
+  drift?: boolean;
   className?: string;
 }
 
@@ -73,7 +92,18 @@ export interface LayoutGridEditorProps {
   bottomOffset?: number;
   minVisibleRows?: number;
   theme?: EditorTheme;
+  /**
+   * How Preview maps the design onto the screen. 'contain' is the screensaver's
+   * own geometry, so Preview shows what the live screensaver will draw.
+   */
+  previewFit?: 'stretch' | 'contain';
   gridHelperText?: string;
+  /** Display mode only; see CssGridDisplayProps. */
+  fadedIds?: ReadonlySet<string>;
+  /** Display mode only; see CssGridDisplayProps. */
+  drift?: boolean;
+  /** Edit mode only; see CssGridEditorProps. */
+  idleToggles?: boolean;
   className?: string;
   screenGuideOrientation?: 'landscape' | 'portrait';
   enabledSizes?: string[];

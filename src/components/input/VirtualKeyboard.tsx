@@ -1,26 +1,50 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useLatestRef } from '@/lib/hooks/useLatestRef';
 import { createPortal } from 'react-dom';
 import Keyboard from 'simple-keyboard';
 import 'simple-keyboard/build/css/index.css';
 import { Mic, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useGlobalInput } from '@/lib/hooks/useGlobalInput';
+import { useHydrated } from '@/lib/hooks/useStoredValue';
+import { useResetOn } from '@/lib/hooks/useResetOn';
 import {
   KEYBOARD_HEIGHT_VH,
   KEYBOARD_MAX_HEIGHT_PX,
   KEYBOARD_MIN_HEIGHT_PX,
 } from '@/lib/input/keyboardLayout';
+import {
+  INITIAL_SHIFT_STATE,
+  applyAutoShift,
+  autoCapitalizeMode,
+  doubleSpacePeriod,
+  DOUBLE_SPACE_MS,
+  consumeShift,
+  autoShiftLayout,
+  caretOf,
+  fieldInfoFor,
+  layoutNameFor,
+  pressShiftKey,
+  shouldAutoShift,
+  textBeforeCaret,
+  type ShiftState,
+} from '@/lib/input/autoCapitalize';
+
+const defaultRows = [
+  '` 1 2 3 4 5 6 7 8 9 0 - = {bksp}',
+  '{tab} q w e r t y u i o p [ ] \\',
+  '{lock} a s d f g h j k l ; \' {enter}',
+  '{shift} z x c v b n m , . / {shift}',
+  '{space} {mic} {dismiss}',
+];
 
 const layout = {
-  default: [
-    '` 1 2 3 4 5 6 7 8 9 0 - = {bksp}',
-    '{tab} q w e r t y u i o p [ ] \\',
-    '{lock} a s d f g h j k l ; \' {enter}',
-    '{shift} z x c v b n m , . / {shift}',
-    '{space} {mic} {dismiss}',
-  ],
+  default: defaultRows,
+  // The one-shot automatic capital (#635): letters only, so digits and
+  // punctuation are unaffected.
+  autoshift: autoShiftLayout(defaultRows),
   shift: [
     '~ ! @ # $ % ^ & * ( ) _ + {bksp}',
     '{tab} Q W E R T Y U I O P { } |',
@@ -52,59 +76,143 @@ export function VirtualKeyboard() {
     isListening,
     startListening,
     stopListening,
+    declaredInputMode,
+    activeField,
   } = useGlobalInput();
 
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
   const [isExiting, setIsExiting] = useState(false);
   const [visible, setVisible] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const keyboardRef = useRef<Keyboard | null>(null);
-  const shiftRef = useRef<'default' | 'shift'>('default');
+  const shiftRef = useRef<ShiftState>(INITIAL_SHIFT_STATE);
+  // The field auto-shift last looked at, to tell a move to another field from
+  // the refocus that follows a key tap.
+  const autoShiftFieldRef = useRef<HTMLElement | null>(null);
+  // Set while onChange injects a keystroke, so the input listener leaves that
+  // one to onChange, which knows the keyboard's own caret.
+  const injectingRef = useRef(false);
+  const keyboardVisibleRef = useRef(keyboardVisible);
+  useEffect(() => { keyboardVisibleRef.current = keyboardVisible; }, [keyboardVisible]);
   // isContentEditable is captured per-show so we don't need to re-init the keyboard
   const isContentEditableRef = useRef(false);
 
   // Stable refs for values used inside keyboard callbacks
-  const injectTextRef = useRef(injectText);
-  injectTextRef.current = injectText;
-  const setKeyboardVisibleRef = useRef(setKeyboardVisible);
-  setKeyboardVisibleRef.current = setKeyboardVisible;
-  const activeInputRef2 = useRef(activeInputRef);
-  activeInputRef2.current = activeInputRef;
-  const activeContentEditableRef2 = useRef(activeContentEditableRef);
-  activeContentEditableRef2.current = activeContentEditableRef;
-  const isListeningRef = useRef(isListening);
-  isListeningRef.current = isListening;
-  const startListeningRef = useRef(startListening);
-  startListeningRef.current = startListening;
-  const stopListeningRef = useRef(stopListening);
-  stopListeningRef.current = stopListening;
+  const injectTextRef = useLatestRef(injectText);
+  const setKeyboardVisibleRef = useLatestRef(setKeyboardVisible);
+  const isListeningRef = useLatestRef(isListening);
+  const startListeningRef = useLatestRef(startListening);
+  const stopListeningRef = useLatestRef(stopListening);
+  const declaredInputModeRef = useLatestRef(declaredInputMode);
 
-  useEffect(() => { setMounted(true); }, []);
+  // Double space for a full stop: when the last space was tapped, and whether
+  // the space being applied now is the second of a pair.
+  const lastSpaceAtRef = useRef(0);
+  const doubleSpaceRef = useRef(false);
+  /** Whether the active field wants sentence punctuation help at all. */
+  const allowsDoubleSpace = (el: HTMLElement | null) =>
+    !!el && autoCapitalizeMode(fieldInfoFor(el, declaredInputModeRef.current(el))) !== 'off';
 
-  // Manage enter/exit animation
-  useEffect(() => {
+  /** Apply a new shift state, re-rendering the keys only when the layout changes. */
+  const setShiftState = useCallback((next: ShiftState) => {
+    const before = layoutNameFor(shiftRef.current);
+    shiftRef.current = next;
+    const after = layoutNameFor(next);
+    if (after !== before) keyboardRef.current?.setOptions({ layoutName: after });
+  }, []);
+
+  /**
+   * The shift state for the caret in the active field, arming or dropping the
+   * automatic capital (#635). `keyboardCaret` is simple-keyboard's caret after
+   * a keystroke it applied; otherwise the field's own selection is read.
+   */
+  const autoShiftState = useCallback((keyboardCaret?: number | null): ShiftState => {
+    const editable = activeContentEditableRef.current;
+    const input = activeInputRef.current;
+    const el = editable ?? input;
+    autoShiftFieldRef.current = el;
+    if (!el) return applyAutoShift(shiftRef.current, false);
+    const info = fieldInfoFor(el, declaredInputModeRef.current(el));
+    let wanted = false;
+    if (editable) {
+      const text = textBeforeCaret(editable);
+      wanted = text !== null && shouldAutoShift(text, text.length, info);
+    } else if (input) {
+      const caret = keyboardCaret !== undefined ? keyboardCaret : caretOf(input);
+      wanted = shouldAutoShift(input.value, caret, info);
+    }
+    return applyAutoShift(shiftRef.current, wanted);
+  }, [activeInputRef, activeContentEditableRef, declaredInputModeRef]);
+  const evaluateAutoShift = useCallback((keyboardCaret?: number | null) => {
+    setShiftState(autoShiftState(keyboardCaret));
+  }, [setShiftState, autoShiftState]);
+
+  // Manage enter/exit animation: the phase changes in the render that sees
+  // keyboardVisible change, and the effect only times the exit.
+  useResetOn(keyboardVisible, () => {
     if (keyboardVisible) {
       setIsExiting(false);
       setVisible(true);
     } else if (visible) {
       setIsExiting(true);
-      const t = setTimeout(() => { setVisible(false); setIsExiting(false); }, 200);
-      return () => clearTimeout(t);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyboardVisible]);
+  });
+  useEffect(() => {
+    if (!isExiting) return;
+    const t = setTimeout(() => { setVisible(false); setIsExiting(false); }, 200);
+    return () => clearTimeout(t);
+  }, [isExiting]);
 
   // Capture isContentEditable state and reset shift when keyboard becomes visible.
-  // Always force layoutName back to 'default' — prevents react-simple-keyboard from
+  // Always force the layout back to lowercase, or to the automatic capital when
+  // the caret starts a sentence (#635). This prevents react-simple-keyboard from
   // getting stuck in a numeric layout when a numeric/password input had focus.
   useEffect(() => {
     if (keyboardVisible && keyboardRef.current) {
-      isContentEditableRef.current = !!activeContentEditableRef2.current.current;
-      shiftRef.current = 'default';
-      keyboardRef.current.setOptions({ layoutName: 'default', layout });
-      keyboardRef.current.setInput(activeInputRef2.current.current?.value ?? '');
+      isContentEditableRef.current = !!activeContentEditableRef.current;
+      shiftRef.current = INITIAL_SHIFT_STATE;
+      shiftRef.current = autoShiftState(); // one render, not two
+      keyboardRef.current.setOptions({ layoutName: layoutNameFor(shiftRef.current), layout });
+      keyboardRef.current.setInput(activeInputRef.current?.value ?? '');
     }
-  }, [keyboardVisible]);
+  }, [keyboardVisible, autoShiftState, activeInputRef, activeContentEditableRef]);
+
+  // Auto-shift follows the caret: a tap that moves it, a move to another
+  // field while the keyboard stays open, and text that arrives some other way
+  // (voice, or a contenteditable keystroke) all re-evaluate it. The provider's
+  // own document listeners run after these, so wait for them to settle.
+  useEffect(() => {
+    const inActiveField = (t: EventTarget | null) => {
+      const el = activeContentEditableRef.current ?? activeInputRef.current;
+      return !!el && t instanceof Node && el.contains(t);
+    };
+    const onFocusIn = () => {
+      setTimeout(() => {
+        if (!keyboardVisibleRef.current) return;
+        const el = activeContentEditableRef.current ?? activeInputRef.current;
+        if (!el || el === autoShiftFieldRef.current) return; // refocus after a key tap
+        isContentEditableRef.current = !!activeContentEditableRef.current;
+        keyboardRef.current?.setInput(activeInputRef.current?.value ?? '');
+        evaluateAutoShift();
+      }, 0);
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      if (!keyboardVisibleRef.current || !inActiveField(e.target)) return;
+      setTimeout(() => { if (keyboardVisibleRef.current) evaluateAutoShift(); }, 0);
+    };
+    const onInput = (e: Event) => {
+      if (injectingRef.current || !keyboardVisibleRef.current || !inActiveField(e.target)) return;
+      evaluateAutoShift();
+    };
+    document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('pointerup', onPointerUp);
+    document.addEventListener('input', onInput);
+    return () => {
+      document.removeEventListener('focusin', onFocusIn);
+      document.removeEventListener('pointerup', onPointerUp);
+      document.removeEventListener('input', onInput);
+    };
+  }, [evaluateAutoShift, activeInputRef, activeContentEditableRef]);
 
   // Init simple-keyboard ONCE after mount — avoids expensive re-init on every show/hide.
   // On slow devices (Wyse 3040), re-initializing on every focus was causing noticeable lag.
@@ -113,16 +221,45 @@ export function VirtualKeyboard() {
 
     const kb = new Keyboard(containerRef.current, {
       onChange: (input) => {
-        if (!isContentEditableRef.current) injectTextRef.current(input);
+        if (isContentEditableRef.current) return;
+        if (doubleSpaceRef.current) {
+          doubleSpaceRef.current = false;
+          const caret = kb.getCaretPosition() ?? input.length;
+          const period = allowsDoubleSpace(activeInputRef.current)
+            ? doubleSpacePeriod(input.slice(0, caret))
+            : null;
+          if (period) {
+            input = period + input.slice(caret);
+            kb.setInput(input);
+          }
+        }
+        injectingRef.current = true;
+        try {
+          injectTextRef.current(input);
+        } finally {
+          injectingRef.current = false;
+        }
+        evaluateAutoShift(kb.getCaretPosition());
       },
       onKeyPress: (button: string) => {
-        if (button === '{shift}' || button === '{lock}') {
-          const next = shiftRef.current === 'default' ? 'shift' : 'default';
-          shiftRef.current = next;
-          kb.setOptions({ layoutName: next });
+        if (button === '{space}') {
+          const now = Date.now();
+          doubleSpaceRef.current = now - lastSpaceAtRef.current < DOUBLE_SPACE_MS;
+          // A third quick tap is a plain space again, not another full stop.
+          lastSpaceAtRef.current = doubleSpaceRef.current ? 0 : now;
+        } else {
+          lastSpaceAtRef.current = 0;
+          doubleSpaceRef.current = false;
         }
-        const activeInput = activeInputRef2.current.current;
-        const activeContentEditable = activeContentEditableRef2.current.current;
+        if (button === '{shift}' || button === '{lock}') {
+          setShiftState(pressShiftKey(shiftRef.current, button === '{shift}' ? 'shift' : 'lock'));
+        } else if (!button.startsWith('{')) {
+          // `button` is already the shifted character, so a one-shot Shift
+          // can be cleared before the edit is applied.
+          setShiftState(consumeShift(shiftRef.current));
+        }
+        const activeInput = activeInputRef.current;
+        const activeContentEditable = activeContentEditableRef.current;
         if (button === '{enter}' && !isContentEditableRef.current && activeInput) {
           activeInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
           activeInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
@@ -148,7 +285,15 @@ export function VirtualKeyboard() {
             document.execCommand('insertParagraph');
           } else if (button === '{space}') {
             el.focus();
-            document.execCommand('insertText', false, ' ');
+            const before = textBeforeCaret(el);
+            if (doubleSpaceRef.current && before !== null && allowsDoubleSpace(el)
+              && doubleSpacePeriod(`${before} `)) {
+              document.execCommand('delete');
+              document.execCommand('insertText', false, '. ');
+            } else {
+              document.execCommand('insertText', false, ' ');
+            }
+            doubleSpaceRef.current = false;
           } else if (button === '{tab}') {
             el.focus();
             document.execCommand('insertText', false, '\t');
@@ -187,16 +332,17 @@ export function VirtualKeyboard() {
     }
   });
 
-  const activeInput = activeInputRef.current;
+  // From state, not the ref: focus can move from one field to another with the
+  // keyboard open, and nothing else re-renders this then.
   const isPassword =
-    activeInput instanceof HTMLInputElement &&
-    activeInput.type === 'password';
+    activeField instanceof HTMLInputElement &&
+    activeField.type === 'password';
 
   // A field on a full-screen overlay (the Babysitter Mode note box, #497) sits
   // above this keyboard's usual layer, so the keyboard opened behind it. Such a
   // field marks a container with data-keyboard-above-overlays and the keyboard
   // lifts for it alone; everywhere else the scanner sheets stay on top.
-  const aboveOverlays = Boolean(activeInput?.closest('[data-keyboard-above-overlays]'));
+  const aboveOverlays = Boolean(activeField?.closest('[data-keyboard-above-overlays]'));
 
   if (!mounted || isMobile) return null;
 

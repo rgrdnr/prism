@@ -2,7 +2,8 @@
  * Portrait Bottom Navigation
  *
  * A bottom navigation bar for portrait mode on web (tablets/desktop).
- * Shows all navigation items in a horizontally scrollable row, centered.
+ * Shows all navigation items in a horizontally scrollable row, centered
+ * when they fit.
  */
 
 'use client';
@@ -12,7 +13,8 @@ import * as React from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { scopedHref, isNavActive } from '@/lib/utils/dashboardScope';
+import { useReturnSlug } from '@/lib/hooks/useReturnSlug';
+import { scopedHref, isNavActive, RETURN_PARAM } from '@/lib/utils/dashboardScope';
 import { User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslations } from 'next-intl';
@@ -33,11 +35,13 @@ export interface PortraitNavProps {
 
 export function PortraitNav({ user, onLogin, onLogout, uiHidden }: PortraitNavProps) {
   const pathname = usePathname();
+  const returnSlug = useReturnSlug();
+  const search = returnSlug ? { get: (k: string) => (k === RETURN_PARAM ? returnSlug : null) } : null;
   const { filterNavItems } = useHiddenPages();
   const navItems = filterNavItems(ALL_NAV_ITEMS);
   const t = useTranslations('common');
 
-  const isActive = (href: string) => isNavActive(href, pathname);
+  const isActive = (href: string) => isNavActive(href, pathname, search);
 
   return (
     <nav className={cn(
@@ -45,14 +49,19 @@ export function PortraitNav({ user, onLogin, onLogout, uiHidden }: PortraitNavPr
       'transition-[transform,opacity] duration-300 ease-in-out',
       uiHidden ? 'translate-y-full opacity-0 delay-100' : 'translate-y-0 opacity-100 delay-0'
     )}>
-      <div className="flex items-center justify-center h-20 overflow-x-auto scrollbar-none px-4">
+      {/* Centred with auto margins on the first and last item, not
+          justify-center: a centred row that overflows spills off both
+          edges and the left part cannot be scrolled to. Auto margins
+          collapse to zero when the row overflows, so it scrolls from the
+          first item instead (#637). */}
+      <div className="flex items-center h-20 overflow-x-auto scrollbar-none px-4 [&>:first-child]:ms-auto [&>:last-child]:me-auto">
         {navItems.map((item) => {
           const Icon = item.icon;
           const active = isActive(item.href);
           return (
             <Link
               key={item.href}
-              href={scopedHref(item.href, pathname)}
+              href={scopedHref(item.href, pathname, search)}
               className={cn(
                 'flex flex-col items-center gap-1 py-2 px-4 min-w-[72px] shrink-0 transition-colors',
                 active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'

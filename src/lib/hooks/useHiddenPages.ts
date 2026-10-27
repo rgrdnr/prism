@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { ALWAYS_VISIBLE_HREFS } from '@/lib/constants/navItems';
 import type { NavItem } from '@/lib/constants/navItems';
 import { LAN_ONLY_NAV_HREFS } from '@/lib/network/externalAccess';
 import { useNetworkContext } from '@/lib/hooks/useNetworkContext';
+import { useFetchOnMount } from './useFetchOnMount';
 
 const CACHE_KEY = 'prism:hidden-pages';
 
@@ -35,9 +36,7 @@ export function useHiddenPages() {
     setLoaded(true);
   }, []);
 
-  useEffect(() => {
-    fetchHiddenPages();
-  }, [fetchHiddenPages]);
+  useFetchOnMount(fetchHiddenPages);
 
   const setHiddenPages = useCallback(async (pages: string[]) => {
     setHiddenPagesState(pages);

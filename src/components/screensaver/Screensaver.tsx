@@ -25,8 +25,16 @@ import { ScreensaverQuickSettings } from './ScreensaverQuickSettings';
 import { getEffect } from './effects';
 import { scaledDuration } from './screensaverPrefs';
 import { usePerformanceMode } from '@/lib/hooks/usePerformanceMode';
+import { useScreenSafeZones } from '@/lib/hooks/useScreenSafeZones';
+import { useViewportSize } from '@/lib/hooks/useViewportSize';
 import { setDisplayIdle } from '@/lib/hooks/useDisplayIdle';
 import { PollingScopeContext } from '@/lib/hooks/pollingScope';
+import { useResetOn } from '@/lib/hooks/useResetOn';
+import { useScreensaverBackdrop, useSkyLocation, useSkyShowing } from './useScreensaverBackdrop';
+import { setCalmIdle, useActiveScreensaverMode } from './calmMode';
+
+// Only displays that choose the sky load its star catalogue.
+const NightSky = React.lazy(() => import('./nightSky/NightSky').then((m) => ({ default: m.NightSky })));
 
 /**
  * Wrapper classes that make any dashboard widget legible as a screensaver
@@ -66,7 +74,15 @@ export function Screensaver() {
   // has touched anything — so it yields to both.
   const { isAway } = useAwayMode();
   const { isActive: isBabysitter } = useBabysitterMode();
-  const isIdle = shouldShowScreensaver({ idle: idleNow, away: isAway, babysitter: isBabysitter });
+  const idle = shouldShowScreensaver({ idle: idleNow, away: isAway, babysitter: isBabysitter });
+  // A calm dashboard is its own idle screen (#691): this decides when, and the
+  // dashboard does the showing, so there is no overlay to put up.
+  const calm = useActiveScreensaverMode() === 'calm';
+  const isIdle = idle && !calm;
+  useEffect(() => {
+    setCalmIdle(idle && calm);
+    return () => setCalmIdle(false);
+  }, [idle, calm]);
   const { enabled: autoOrientation } = useAutoOrientationSetting();
   const { pinnedId } = usePinnedPhoto('screensaver');
   const { interval: screensaverInterval } = useScreensaverInterval();
@@ -83,11 +99,17 @@ export function Screensaver() {
   });
   // Tell the polling layer the display is covered. On a wall-mounted screen
   // this is the only pause signal that ever fires: document.hidden cannot,
-  // because the tab is never hidden. See useDisplayIdle.
+  // because the tab is never hidden. See useDisplayIdle. A calm display is
+  // never covered: its dashboard is what the idle screen shows, so it keeps
+  // refreshing.
   useEffect(() => {
     setDisplayIdle(isIdle);
     return () => setDisplayIdle(false);
   }, [isIdle]);
+
+  const { backdrop } = useScreensaverBackdrop();
+  const { lat, lon } = useSkyLocation(backdrop !== 'photos');
+  const showSky = useSkyShowing(backdrop, lat, lon, isIdle);
 
   const [visible, setVisible] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -95,7 +117,7 @@ export function Screensaver() {
 
   // Only rotate if no pinned photo and interval is not "never" (0)
   useEffect(() => {
-    if (!isIdle || photos.length <= 1 || pinnedId || screensaverInterval === 0) return;
+    if (!isIdle || showSky || photos.length <= 1 || pinnedId || screensaverInterval === 0) return;
     const timer = setInterval(() => {
       setFadingOut(true);
       setTimeout(() => {
@@ -104,21 +126,23 @@ export function Screensaver() {
       }, 1000);
     }, screensaverInterval * 1000);
     return () => clearInterval(timer);
-  }, [isIdle, photos.length, pinnedId, screensaverInterval]);
+  }, [isIdle, showSky, photos.length, pinnedId, screensaverInterval]);
 
+  // Fade in a tick after it mounts; start over transparent each time it ends.
+  useResetOn(isIdle, () => {
+    if (!isIdle) setVisible(false);
+  });
   useEffect(() => {
-    if (isIdle) {
-      const timer = setTimeout(() => setVisible(true), 50);
-      return () => clearTimeout(timer);
-    } else {
-      setVisible(false);
-    }
+    if (!isIdle) return;
+    const timer = setTimeout(() => setVisible(true), 50);
+    return () => clearTimeout(timer);
   }, [isIdle]);
 
   if (!isIdle) return null;
 
-  // Use pinned photo if set, otherwise use rotating photos
-  const src = pinnedId
+  // Use pinned photo if set, otherwise use rotating photos. None at all under
+  // the sky, so it loads nothing for as long as it is up.
+  const src = showSky ? '' : pinnedId
     ? `/api/photos/${pinnedId}/file`
     : photos[currentIndex]
       ? `/api/photos/${photos[currentIndex]!.id}/file`
@@ -143,7 +167,15 @@ export function Screensaver() {
           }}
         />
       )}
-      <div className="pointer-events-none absolute inset-0 bg-black/40" />
+      {showSky ? (
+        <React.Suspense fallback={null}>
+          <NightSky lat={lat} lon={lon} />
+        </React.Suspense>
+      ) : (
+        // Photos are dimmed so the white widget text reads over them. The sky
+        // is already dark where it matters.
+        <div className="pointer-events-none absolute inset-0 bg-black/40" />
+      )}
       {/* Scoped from out here rather than inside ScreensaverGrid: the grid
           calls useDashboardData in its own body, which reads context from
           where the grid SITS, not from what it renders. */}
@@ -193,6 +225,11 @@ function giveItBody(clone: HTMLElement) {
 
 function ScreensaverGrid() {
   const layout = useMemo(() => loadScreensaverLayout(), []);
+  // The editor's Screen frame for this screen's orientation: what the layout
+  // was sized against, so it is what gets fitted to the screen.
+  const { zones } = useScreenSafeZones();
+  const { width: vw, height: vh } = useViewportSize();
+  const screenFrame = zones[vw >= vh ? 'landscape' : 'portrait'][0];
 
   // Which widgets are currently on screen. Off by default, in which case every
   // widget shows and all of this is inert.
@@ -326,20 +363,8 @@ function ScreensaverGrid() {
       ...props
     } = rawProps as Record<string, unknown>;
       const on = !effect || showing.includes(w.i);
-    // Every widget on its own schedule. Drifting in lockstep would move the
-    // whole board as one object, which is both obvious and useless — the
-    // relationship between widgets is exactly what would stay burned in.
-    // Derived from the widget's id so it is stable across renders.
-    let hash = 0;
-    for (let i = 0; i < w.i.length; i++) hash = (hash * 31 + w.i.charCodeAt(i)) % 997;
-    const driftPhase = -(hash % 60);
-
     return (
       <React.Suspense fallback={<div className="flex items-center justify-center h-full opacity-50 text-sm">Loading...</div>}>
-        <div
-          className={drift === 'off' ? 'h-full w-full' : `h-full w-full prism-drift-${drift}`}
-          style={drift === 'off' ? undefined : { animationDelay: `${driftPhase}s` }}
-        >
         <WidgetStage
           id={w.i}
           effect={effect}
@@ -358,7 +383,6 @@ function ScreensaverGrid() {
         >
           <Component {...props} />
         </WidgetStage>
-        </div>
       </React.Suspense>
     );
   };
@@ -386,7 +410,9 @@ function ScreensaverGrid() {
         containerPadding={12}
         cols={GRID_COLS}
         containMode
+        screenFrame={screenFrame}
         headerOffset={0}
+        drift={drift}
         className="w-full h-full"
       />
       </EffectStage>

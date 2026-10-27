@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { WidgetBgOverrideProvider } from '@/components/widgets/WidgetContainer';
 import { getWidgetStyle, getWidgetContentStyle, getTextColorClass } from './gridWidgetStyles';
 import { useSquareCells } from './useSquareCells';
@@ -8,6 +8,57 @@ import { useViewportSize } from '@/lib/hooks/useViewportSize';
 import { GRID_COLS } from '@/lib/constants/grid';
 import { resolveFitMode, containGeometry } from './fitMode';
 import type { CssGridDisplayProps } from './gridEditorTypes';
+/** One figure eight, in seconds. The keyframes are prism-drift in globals.css. */
+const DRIFT_PERIOD_S = 96;
+
+/**
+ * Where in the drift cycle a cell starts, in seconds (negative, so it is
+ * already under way): the same point for every cell, taken from the wall
+ * clock, so every widget on screen drifts in step however late it arrived.
+ *
+ * In step, because drifting out of step let neighbours move towards each other
+ * and overlap: two widgets each 4 px out close a 4 px gap twice over. Moving
+ * together keeps every gap exactly as designed, and every pixel still sees the
+ * same movement, which is all the panel needs.
+ */
+function driftPhase(): number {
+  return -((Date.now() / 1000) % DRIFT_PERIOD_S);
+}
+
+/**
+ * Start or stop one cell's drift.
+ *
+ * Done to the element rather than rendered, for the sake of stopping. Taking
+ * the animation away puts the cell straight back where it started, and a
+ * widget that has drifted four pixels jumps four pixels the moment the display
+ * wakes. So the cell is pinned where it is at that instant and eased home over
+ * the same second the faded widgets take to come back.
+ */
+function setCellDrift(el: HTMLElement, want: boolean) {
+  if ((el.dataset.drift !== undefined) === want) return;
+  if (want) {
+    el.style.transitionProperty = ''; // in case it was still easing home
+    el.dataset.drift = '';
+    el.style.animationDuration = `${DRIFT_PERIOD_S}s`;
+    el.style.animationDelay = `${driftPhase()}s`;
+    return;
+  }
+  const at = getComputedStyle(el).transform;
+  delete el.dataset.drift;
+  el.style.animationDuration = '';
+  el.style.animationDelay = '';
+  if (!at || at === 'none') return;
+  el.style.transform = at;
+  void el.offsetWidth; // commit the pinned position, or there is nothing to ease from
+  el.style.transitionProperty = 'opacity, transform';
+  el.style.transform = '';
+  const done = (e: TransitionEvent) => {
+    if (e.target !== el || e.propertyName !== 'transform') return;
+    el.style.transitionProperty = '';
+    el.removeEventListener('transitionend', done);
+  };
+  el.addEventListener('transitionend', done);
+}
 
 /**
  * Pure CSS Grid display for dashboard widgets. SSR-safe.
@@ -26,10 +77,13 @@ export function CssGridDisplay({
   targetRows,
   designOrientation,
   containMode = false,
+  screenFrame,
+  fadedIds,
+  drift = false,
   className,
 }: CssGridDisplayProps) {
   const { containerRef, cellSize: widthCellSize, width, top, zoom, remeasure } = useSquareCells(cols, containerPadding, margin, fillHeight);
-  const { width: viewportWidth, height: viewportHeight } = useViewportSize();
+  const { width: viewportWidth, height: viewportHeight, visibleHeight } = useViewportSize();
 
   // Re-read the grid's real top whenever the chrome offset changes (a toolbar
   // show/hide is a position change the ResizeObserver never sees), so the fill
@@ -40,6 +94,14 @@ export function CssGridDisplay({
     () => layout.filter(w => w.visible !== false),
     [layout],
   );
+
+  // A faded widget does not drift: there is nothing on screen to protect.
+  const cells = useRef(new Map<string, HTMLDivElement>());
+  useLayoutEffect(() => {
+    for (const [id, el] of cells.current) {
+      setCellDrift(el, drift && !fadedIds?.has(id));
+    }
+  }, [drift, fadedIds, visibleWidgets]);
 
   // --- Fit-to-screen (targetRows set) --------------------------------------
   // The design is a fixed `cols × targetRows` canvas. How it maps onto the real
@@ -64,8 +126,12 @@ export function CssGridDisplay({
       if (w.x + w.w > maxCol) maxCol = w.x + w.w;
       if (w.y + w.h > maxRow) maxRow = w.y + w.h;
     }
+    if (containMode && screenFrame) {
+      maxCol = Math.max(maxCol, screenFrame.cols);
+      maxRow = Math.max(maxRow, screenFrame.rows);
+    }
     return { fitCols: maxCol, fitRows: maxRow };
-  }, [visibleWidgets]);
+  }, [visibleWidgets, containMode, screenFrame]);
 
   const screenWide = viewportWidth >= viewportHeight;
   const mode = resolveFitMode({
@@ -100,11 +166,8 @@ export function CssGridDisplay({
   // Some kiosk browsers over-report window.innerHeight vs the actually-visible
   // area (a device/browser bottom bar), which let the bottom row clip on a real
   // touch display even when the math looked right. Prefer the visual-viewport
-  // height whenever it's smaller.
-  const visualH = (typeof window !== 'undefined' && window.visualViewport)
-    ? Math.min(viewportHeight, window.visualViewport.height)
-    : viewportHeight;
-  const localH = visualH / zoom;
+  // height whenever it's smaller (useViewportSize tracks it, so it stays current).
+  const localH = visibleHeight / zoom;
   const bottomSafety = chromeTop > 0 ? Math.round(margin * 1.5) : 0;
   const availH = Math.max(120, localH - chromeTop - bottomOffset - bottomSafety);
 
@@ -204,16 +267,24 @@ export function CssGridDisplay({
           const contentStyle = getWidgetContentStyle(w);
           const textClass = getTextColorClass(w);
           const hasCustomBg = !!w.backgroundColor;
+          const faded = fadedIds?.has(w.i) ?? false;
 
           return (
             <div
               key={w.i}
-              className={`widget-cell relative overflow-hidden ${textClass}`}
+              className={`widget-cell relative overflow-hidden ${textClass} transition-opacity duration-1000 motion-reduce:duration-200`}
+              ref={(el) => { if (el) cells.current.set(w.i, el); else cells.current.delete(w.i); }}
               data-widget={w.i}
+              data-faded={faded || undefined}
+              aria-hidden={faded || undefined}
               style={{
                 gridColumn: `${w.x + 1} / span ${w.w}`,
                 gridRow: `${w.y + 1} / span ${w.h}`,
                 ...widgetStyle,
+                // Faded, not removed: the cell keeps its place in the grid, so
+                // nothing around it reflows. A tap on it falls to the empty
+                // grid, which wakes the display without pressing anything.
+                ...(faded ? { opacity: 0, pointerEvents: 'none' as const } : {}),
               }}
             >
               <WidgetBgOverrideProvider value={{ hasCustomBg, textColor: w.textColor, textOpacity: w.textOpacity, gridLineOpacity: w.gridLineOpacity, cellBackgroundColor: w.cellBackgroundColor, cellBackgroundOpacity: w.cellBackgroundOpacity }}>

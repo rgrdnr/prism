@@ -35,6 +35,10 @@ export function LayoutGridEditor({
   bottomOffset = 0,
   minVisibleRows = 0,
   theme = DASHBOARD_THEME,
+  previewFit = 'stretch',
+  fadedIds,
+  drift,
+  idleToggles,
   gridHelperText,
   className,
   screenGuideOrientation: screenGuideOrientationProp,
@@ -50,7 +54,7 @@ export function LayoutGridEditor({
   const { height: viewportHeight } = useViewportSize();
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
-  const [selectedWidget, setSelectedWidget] = useState<string | null>(null);
+  const [selectedId, setSelectedWidget] = useState<string | null>(null);
   const colorPickerRef = useRef<HTMLInputElement | null>(null);
   const [colorTarget, setColorTarget] = useState<'fill' | 'outline' | 'text'>('fill');
   const [openPopover, setOpenPopover] = useState<'fill' | 'outline' | 'text' | 'grid' | null>(null);
@@ -194,16 +198,12 @@ export function LayoutGridEditor({
     );
   }, []);
 
-  const layoutRef = useRef(layout);
   const layoutJson = JSON.stringify(layout);
-  const stableLayout = useMemo(() => {
-    layoutRef.current = layout;
-    return layout;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layoutJson]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const stableLayout = useMemo(() => layout, [layoutJson]);
 
   const updateWidgetColor = useCallback((widgetId: string, updates: { backgroundColor?: string | null; backgroundOpacity?: number; outlineColor?: string | null; outlineOpacity?: number; textColor?: string | null; textOpacity?: number; textScale?: number; gridLineOpacity?: number; cellBackgroundColor?: string | null; cellBackgroundOpacity?: number }) => {
-    const updated = layoutRef.current.map(w => {
+    const updated = stableLayout.map(w => {
       if (w.i === widgetId) {
         return {
           ...w,
@@ -222,18 +222,13 @@ export function LayoutGridEditor({
       return w;
     });
     onLayoutChange(updated);
-  }, [onLayoutChange]);
+  }, [stableLayout, onLayoutChange]);
 
-  // Clear selection when widget becomes invisible
-  useEffect(() => {
-    if (selectedWidget && !layout.find(w => w.i === selectedWidget && w.visible !== false)) {
-      setSelectedWidget(null);
-    }
-  }, [selectedWidget, layout]);
-
-  const selectedWidgetConfig = selectedWidget
-    ? layoutRef.current.find(w => w.i === selectedWidget && w.visible !== false)
+  // A widget that is hidden or removed is no longer selected.
+  const selectedWidgetConfig = selectedId
+    ? stableLayout.find(w => w.i === selectedId && w.visible !== false)
     : null;
+  const selectedWidget = selectedWidgetConfig ? selectedId : null;
 
   // Get current color value for whichever target is active
   const getActiveColor = (widget: WidgetConfig): string | undefined => {
@@ -360,7 +355,7 @@ export function LayoutGridEditor({
             <button onClick={() => colorPickerRef.current?.click()} onPointerDown={(e) => e.stopPropagation()}
               className="w-7 h-7 rounded-full border border-gray-400 transition-transform hover:scale-110 touch-manipulation overflow-hidden"
               style={{ background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)' }} title="Custom" />
-            <input ref={(el) => { (colorPickerRef as React.MutableRefObject<HTMLInputElement | null>).current = el; }}
+            <input ref={colorPickerRef}
               type="color" className="sr-only" value={color || '#3B82F6'} onChange={(e) => apply(e.target.value)} />
           </div>
         </div>
@@ -644,20 +639,38 @@ export function LayoutGridEditor({
   // instead of a square-cell, letterboxed approximation. (The old multi-screen
   // safe-zone preview lives on in git history / the archived guide code if a
   // fixed-aspect fit is ever needed again for odd screens like iPad/e-readers.)
+  //
+  // No `className` here: the live display has no side margins, so a preview
+  // inside them was narrower than the screen it claims to show.
   if (isEditable && measureMode) {
+    const frame = SAFE_ZONES[screenGuideOrientation]?.[0];
     return (
-      <div className={className || ''}>
-        <CssGridDisplay
-          layout={stableLayout}
-          renderWidget={renderWidget}
-          margin={margin}
-          containerPadding={containerPadding}
-          cols={cols}
-          headerOffset={measureHideNav ? 0 : 50}
-          bottomOffset={measureHideNav ? 0 : bottomOffset}
-          targetRows={displayTargetRows}
-          designOrientation={screenGuideOrientation}
-        />
+      <div>
+        {previewFit === 'contain' ? (
+          <CssGridDisplay
+            layout={stableLayout}
+            renderWidget={renderWidget}
+            margin={margin}
+            containerPadding={containerPadding}
+            cols={cols}
+            containMode
+            screenFrame={frame}
+            headerOffset={measureHideNav ? 0 : 50}
+            bottomOffset={measureHideNav ? 0 : bottomOffset}
+          />
+        ) : (
+          <CssGridDisplay
+            layout={stableLayout}
+            renderWidget={renderWidget}
+            margin={margin}
+            containerPadding={containerPadding}
+            cols={cols}
+            headerOffset={measureHideNav ? 0 : 50}
+            bottomOffset={measureHideNav ? 0 : bottomOffset}
+            targetRows={displayTargetRows}
+            designOrientation={screenGuideOrientation}
+          />
+        )}
       </div>
     );
   }
@@ -701,6 +714,7 @@ export function LayoutGridEditor({
                 selectedWidget={selectedWidget}
                 onSelectWidget={setSelectedWidget}
                 theme={theme}
+                idleToggles={idleToggles}
               />
             ) : (
               <div style={{ padding: 20, color: 'yellow' }}>
@@ -726,6 +740,8 @@ export function LayoutGridEditor({
       minVisibleRows={minVisibleRows}
       targetRows={displayTargetRows}
       designOrientation={screenGuideOrientation}
+      fadedIds={fadedIds}
+      drift={drift}
       className={className}
     />
   );

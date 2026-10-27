@@ -27,7 +27,9 @@ import * as React from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { scopedHref, isNavActive } from '@/lib/utils/dashboardScope';
+import { scopedHref, isNavActive, RETURN_PARAM } from '@/lib/utils/dashboardScope';
+import { useReturnSlug } from '@/lib/hooks/useReturnSlug';
+import { useResetOn } from '@/lib/hooks/useResetOn';
 import { HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PrismIcon } from '@/components/ui/PrismIcon';
@@ -77,6 +79,8 @@ export interface SideNavProps {
 export function SideNav({ user, onLogout, onLogin, uiHidden, className }: SideNavProps) {
   // Get current pathname for active state
   const pathname = usePathname();
+  const returnSlug = useReturnSlug();
+  const search = returnSlug ? { get: (k: string) => (k === RETURN_PARAM ? returnSlug : null) } : null;
   const { filterNavItems } = useHiddenPages();
   const navItems = filterNavItems(ALL_NAV_ITEMS);
   const t = useTranslations('common');
@@ -100,12 +104,10 @@ export function SideNav({ user, onLogout, onLogin, uiHidden, className }: SideNa
   }, [expanded]);
 
   // Collapse on navigation
-  React.useEffect(() => {
-    setExpanded(false);
-  }, [pathname]);
+  useResetOn(pathname, () => setExpanded(false));
 
   // Check if a nav item is active
-  const isActive = (href: string) => isNavActive(href, pathname);
+  const isActive = (href: string) => isNavActive(href, pathname, search);
 
   // Toggle drawer on tap in blank area — skip if clicking a link or button
   const handleAsideClick = (e: React.MouseEvent) => {
@@ -132,7 +134,7 @@ export function SideNav({ user, onLogout, onLogin, uiHidden, className }: SideNa
       >
         {/* HEADER WITH LOGO */}
         <div className={cn('flex items-center h-12 pointer-coarse:h-16 px-2', expanded ? 'justify-start' : 'justify-center')}>
-          <Link href={scopedHref('/', pathname)} className="flex items-center gap-2" aria-label="Prism home">
+          <Link href={scopedHref('/', pathname, search)} className="flex items-center gap-2" aria-label="Prism home">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 overflow-hidden">
               <PrismIcon size={24} />
             </div>
@@ -150,7 +152,7 @@ export function SideNav({ user, onLogout, onLogin, uiHidden, className }: SideNa
               return (
                 <li key={item.href}>
                   <Link
-                    href={scopedHref(item.href, pathname)}
+                    href={scopedHref(item.href, pathname, search)}
                     aria-label={t(item.i18nKey)}
                     className={cn(
                       'flex items-center gap-3 px-3 py-1.5 pointer-coarse:py-2.5 rounded-lg',

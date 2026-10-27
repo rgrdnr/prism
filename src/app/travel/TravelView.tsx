@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { Globe, List, Loader2, Moon, Sun, Route, MapPin, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -14,6 +14,7 @@ import { TripForm } from './components/TripForm';
 import { TripDetail } from './components/TripDetail';
 import type { PinPendingChildren } from './components/PinForm';
 import type { TravelPin, TravelTrip, PinType, ExpenseCategory } from './types';
+import { latestRecord } from '@/lib/utils/latestRecord';
 
 const TravelGlobe = dynamic(
   () => import('./components/TravelGlobe').then((m) => m.TravelGlobe),
@@ -36,6 +37,12 @@ type Overlay =
   | { mode: 'trip-add' }
   | { mode: 'trip-edit'; trip: TravelTrip };
 
+function freshOverlay(overlay: Overlay, pins: TravelPin[], trips: TravelTrip[]): Overlay {
+  if (overlay.mode === 'detail') return { mode: 'detail', pin: latestRecord(pins, overlay.pin) };
+  if (overlay.mode === 'trip-detail') return { mode: 'trip-detail', trip: latestRecord(trips, overlay.trip) };
+  return overlay;
+}
+
 export function TravelView() {
   const {
     pins, trips, expenses, loading,
@@ -47,7 +54,10 @@ export function TravelView() {
 
   const handleMutationError = useCallback((err: unknown) => {
     if (err instanceof TravelAuthError) {
-      toast({ title: 'Log in to make changes', description: 'Enter your PIN to add, edit, or delete places.', variant: 'destructive' });
+      // Not signed in: AuthProvider has already opened the PIN box.
+      if (err.status === 403) {
+        toast({ title: "You can't change places", description: 'Ask a parent to make this change.', variant: 'destructive' });
+      }
     } else {
       toast({ title: 'Something went wrong', description: 'Please try again.', variant: 'destructive' });
     }
@@ -56,7 +66,7 @@ export function TravelView() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('globe');
   const [selectedPinId, setSelectedPinId] = useState<string | null>(null);
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
-  const [overlay, setOverlay] = useState<Overlay>({ mode: 'none' });
+  const [overlayState, setOverlay] = useState<Overlay>({ mode: 'none' });
   const [showAllChildren, setShowAllChildren] = useState(false);
   const [globeDarkMode, setGlobeDarkMode] = useState(false);
 
@@ -295,17 +305,9 @@ export function TravelView() {
     setSelectedTripId(null);
   }, []);
 
-  // Keep detail overlays fresh when pins/trips update
-  useEffect(() => {
-    if (overlay.mode === 'detail') {
-      const fresh = pins.find((p) => p.id === overlay.pin.id);
-      if (fresh) setOverlay({ mode: 'detail', pin: fresh });
-    }
-    if (overlay.mode === 'trip-detail') {
-      const fresh = trips.find((t) => t.id === overlay.trip.id);
-      if (fresh) setOverlay({ mode: 'trip-detail', trip: fresh });
-    }
-  }, [pins, trips]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Detail overlays show the pin or trip as the lists have it now, so an edit
+  // or a refresh shows straight away.
+  const overlay = freshOverlay(overlayState, pins, trips);
 
   // Visible pins on the globe
   const visibleChildParentIds = new Set<string>();
@@ -334,12 +336,25 @@ export function TravelView() {
   }, [pins, rootPins]);
 
   // Current trip stops/expenses for TripDetail
-  const currentTripStops = overlay.mode === 'trip-detail'
-    ? pins.filter((p) => p.tripId === overlay.trip.id).sort((a, b) => a.sortOrder - b.sortOrder)
-    : [];
-  const currentTripExpenses = overlay.mode === 'trip-detail'
-    ? expenses.filter((e) => e.tripId === overlay.trip.id)
-    : [];
+  // Memoized: the trip panel keeps a local copy of these for drag-reordering,
+  // which starts over whenever this array changes identity.
+  const openTripId = overlay.mode === 'trip-detail' ? overlay.trip.id : null;
+  const currentTripStops = useMemo(
+    () => openTripId
+      ? pins.filter((p) => p.tripId === openTripId).sort((a, b) => a.sortOrder - b.sortOrder)
+      : [],
+    [pins, openTripId],
+  );
+  const currentTripExpenses = useMemo(
+    () => (openTripId ? expenses.filter((e) => e.tripId === openTripId) : []),
+    [expenses, openTripId],
+  );
+
+  const openPinId = overlay.mode === 'detail' ? overlay.pin.id : null;
+  const openPinChildren = useMemo(
+    () => (openPinId ? pins.filter((p) => p.parentId === openPinId) : []),
+    [pins, openPinId],
+  );
 
   return (
     <PageWrapper>
@@ -467,7 +482,7 @@ export function TravelView() {
               ) : overlay.mode === 'detail' ? (
                 <PinDetail
                   pin={overlay.pin}
-                  childPins={pins.filter((p) => p.parentId === overlay.pin.id)}
+                  childPins={openPinChildren}
                   onUpdate={(data, pendingChildren) => handleUpdate(overlay.pin.id, data, pendingChildren)}
                   onDelete={() => handleDelete(overlay.pin.id)}
                   onDeleteChild={handleDeleteChild}

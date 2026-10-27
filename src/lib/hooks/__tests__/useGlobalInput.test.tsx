@@ -23,7 +23,10 @@ jest.mock('@/lib/input/keyboardLayout', () => ({
   revealAboveKeyboard: (...a: unknown[]) => mockReveal(...a),
 }));
 
+jest.mock('simple-keyboard/build/css/index.css', () => ({}), { virtual: true });
+
 import { GlobalInputProvider, useGlobalInput } from '../useGlobalInput';
+import { VirtualKeyboard } from '@/components/input/VirtualKeyboard';
 import { writeKeyboardDevicePref } from '@/lib/input/keyboardDevicePref';
 
 let settingValue: unknown = null;
@@ -275,6 +278,25 @@ describe('per-device choice (#525)', () => {
     expect(field.hasAttribute('inputmode')).toBe(false);
   });
 
+  it('Always opens the keyboard even when the touch is reported as a mouse pointer (Pi/Wayland, #627)', async () => {
+    store('always');
+    const { field } = await setup();
+    tap(field, 'mouse');
+    expect(ctx.keyboardVisible).toBe(true);
+    expect(field.getAttribute('inputmode')).toBe('none');
+  });
+
+  it('Always reopens the keyboard after Enter closed it, even reported as a mouse pointer (#627)', async () => {
+    store('always');
+    const { field } = await setup();
+    tap(field, 'mouse');
+    act(() => { ctx.setKeyboardVisible(false); }); // what the Enter key does
+    expect(ctx.keyboardVisible).toBe(false);
+    expect(document.activeElement).toBe(field);
+    act(() => { pointerDown(field, 'mouse'); });
+    expect(ctx.keyboardVisible).toBe(true);
+  });
+
   it('a change from Settings applies at once and closes an open keyboard', async () => {
     const { field } = await setup();
     tap(field, 'touch');
@@ -283,5 +305,28 @@ describe('per-device choice (#525)', () => {
     expect(ctx.keyboardVisible).toBe(false);
     expect(field.hasAttribute('inputmode')).toBe(false);
     expect(window.localStorage.getItem('prism:keyboard-on-this-device')).toBe('"never"');
+  });
+});
+
+describe('the keyboard follows focus between fields', () => {
+  it('hides the mic key on a password field reached with the keyboard already open', async () => {
+    // Moving from one field to the next leaves the keyboard visible and an
+    // input focused, so nothing the keyboard used to render from changed, and
+    // it kept showing the mic over a password field.
+    const utils = render(
+      <GlobalInputProvider>
+        <input data-testid="text" type="text" />
+        <input data-testid="pw" type="password" />
+        <VirtualKeyboard />
+      </GlobalInputProvider>,
+    );
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const keys = () => document.querySelector('[data-virtual-keyboard] > div')!;
+
+    tap(utils.getByTestId('text'), 'touch');
+    expect(keys().className).not.toContain('key-mic');
+
+    tap(utils.getByTestId('pw'), 'touch');
+    expect(keys().className).toContain('[&_.key-mic]:opacity-0');
   });
 });

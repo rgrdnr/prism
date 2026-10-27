@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useEffectEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { useScreensaverTimeout } from './useScreensaverTimeout';
+import { useLatestRef } from './useLatestRef';
 
 const INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
@@ -28,12 +29,10 @@ function isDashboard(path: string) {
  */
 export function useInactivityRedirect() {
   const router = useRouter();
-  const routerRef = useRef(router);
-  routerRef.current = router;
+  const goHome = useEffectEvent(() => router.push('/'));
 
   const { timeout: screensaverTimeout } = useScreensaverTimeout();
-  const screensaverTimeoutRef = useRef(screensaverTimeout);
-  screensaverTimeoutRef.current = screensaverTimeout;
+  const screensaverTimeoutRef = useLatestRef(screensaverTimeout);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -46,7 +45,7 @@ export function useInactivityRedirect() {
         if (screensaverTimeoutRef.current !== 0) return;
         // Read pathname at fire time — no subscription needed
         if (!isDashboard(window.location.pathname)) {
-          routerRef.current.push('/');
+          goHome();
         }
       }, INACTIVITY_TIMEOUT);
     }
@@ -59,6 +58,5 @@ export function useInactivityRedirect() {
       events.forEach(e => window.removeEventListener(e, resetTimer));
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [screensaverTimeoutRef]);
 }

@@ -11,10 +11,12 @@ import { useBabysitterInfo, type BabysitterSection, type BabysitterInfoItem } fr
 import { useWifiConfig } from '@/lib/hooks/useWifiConfig';
 import { ExitBabysitterModeModal } from './ExitBabysitterModeModal';
 import { GuestNoteBox } from './GuestNoteBox';
+import { GuestMealsCard } from './GuestMealsCard';
 import { WifiQRCode } from '@/components/ui/WifiQRCode';
 import { cn } from '@/lib/utils';
 import { useTimeFormat } from '@/components/providers';
 import { formatDisplayTime, toDisplayDate } from '@/lib/utils/timeFormat';
+import { useResetOn } from '@/lib/hooks/useResetOn';
 
 interface EmergencyContact {
   name: string;
@@ -50,15 +52,17 @@ export function BabysitterModeOverlay() {
   const [visible, setVisible] = useState(false);
   const [showExitModal, setShowExitModal] = useState(false);
 
-  // Fade in effect
-  useEffect(() => {
-    if (isActive) {
-      const timer = setTimeout(() => setVisible(true), 50);
-      return () => clearTimeout(timer);
-    } else {
+  // Fade in a tick after it opens; start over closed each time it ends.
+  useResetOn(isActive, () => {
+    if (!isActive) {
       setVisible(false);
       setShowExitModal(false);
     }
+  });
+  useEffect(() => {
+    if (!isActive) return;
+    const timer = setTimeout(() => setVisible(true), 50);
+    return () => clearTimeout(timer);
   }, [isActive]);
 
   const handleExitSuccess = useCallback(async () => {
@@ -165,6 +169,8 @@ export function BabysitterModeOverlay() {
             />
           </div>
         )}
+
+        <GuestMealsCard className="max-w-6xl mx-auto mt-6" />
 
         <GuestNoteBox className="max-w-6xl mx-auto mt-6" />
       </div>

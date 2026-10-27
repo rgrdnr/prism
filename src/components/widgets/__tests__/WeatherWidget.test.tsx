@@ -7,7 +7,7 @@
  */
 
 import React from 'react';
-import { render as rtlRender, screen, type RenderOptions } from '@testing-library/react';
+import { act, render as rtlRender, screen, type RenderOptions } from '@testing-library/react';
 import { TimeFormatProvider } from '@/components/providers';
 import * as SunCalc from 'suncalc';
 
@@ -204,6 +204,26 @@ describe('hourly forecast cards', () => {
   it('renders nothing for the hourly section when no hourly data', () => {
     render(<WeatherWidget data={makeWeatherData({ hourly: [] })} />);
     expect(screen.queryByText(/Next .* Hours/)).toBeNull();
+  });
+
+  it('moves the "Now" card along as time passes, without new data', () => {
+    // A wall display keeps the same forecast for a while between fetches, so
+    // the row has to follow the clock rather than the last render.
+    jest.useFakeTimers({ now: new Date('2026-06-15T10:30:00Z') });
+    const base = new Date('2026-06-15T10:00:00Z').getTime();
+    const hourly = Array.from({ length: 24 }, (_, i) => ({
+      time: new Date(base + i * 60 * 60_000),
+      condition: 'sunny' as WeatherCondition,
+      temp: 100 + i, // unique per hour, and clear of every other temp shown
+    }));
+    render(<WeatherWidget data={makeWeatherData({ hourly })} />);
+    expect(screen.queryAllByText(/^100°/).length).toBeGreaterThan(0);
+
+    act(() => { jest.advanceTimersByTime(2 * 60 * 60_000); });
+
+    expect(screen.queryAllByText(/^100°/)).toHaveLength(0);
+    expect(screen.queryAllByText(/^101°/)).toHaveLength(0);
+    expect(screen.queryAllByText(/^102°/).length).toBeGreaterThan(0);
   });
 
   it('hides the hourly section when showForecast=false', () => {
@@ -500,5 +520,87 @@ describe('sun and moon arcs', () => {
     // 45° maps halfway from the horizon at 66 to the zenith at 10. Treating
     // SunCalc v2's degrees as radians would clamp the point to y=10 instead.
     expect(sunPath?.getAttribute('d')).toContain('38.0');
+  });
+});
+
+
+// ===========================================================================
+// 9. An eclipse on the sun and moon arc
+// ===========================================================================
+
+describe('an eclipse on the arc', () => {
+  // A partial solar eclipse from noon to two, at its peak at one.
+  const solar = {
+    body: 'sun' as const,
+    kind: 'partial' as const,
+    begin: new Date(2026, 6, 17, 12, 0),
+    peak: new Date(2026, 6, 17, 13, 0),
+    end: new Date(2026, 6, 17, 14, 0),
+    obscuration: 0.6,
+  };
+  const day = (eclipse: WeatherData['eclipse']) => makeWeatherData({
+    sunrise: new Date(2026, 6, 17, 5, 30),
+    sunset: new Date(2026, 6, 17, 20, 15),
+    moonrise: new Date(2026, 6, 17, 21, 0),
+    moonset: new Date(2026, 6, 18, 5, 0),
+    moonPhase: 0.5,
+    lat: 45,
+    lon: -100,
+    eclipse,
+  });
+  const at = (h: number) => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 6, 17, h, 0));
+  };
+
+  it('outlines it ahead of time, where the sun will be at its peak, and says when', () => {
+    at(9);
+    render(<WeatherWidget data={day(solar)} />);
+    const marker = screen.getByTestId('eclipse-marker');
+    expect(marker.textContent).toMatch(/^Eclipse 1:00/);
+    expect(screen.getByTestId('eclipse-line').textContent)
+      .toMatch(/^Partial solar eclipse: 12:00.* to 2:00.*, peak 1:00/);
+    // Nothing is covered yet.
+    expect(screen.queryByTestId('eclipse-shadow')).toBeNull();
+  });
+
+  it('shows the shadow across the sun while it happens', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 6, 17, 12, 30));
+    // The sun is up: pinned, because the fixture's place and the clock's zone
+    // need not agree, and in Tokyo 12:30 is the middle of the night at 100W.
+    jest.mocked(SunCalc.getPosition).mockReturnValue({ altitude: 40, azimuth: 180 });
+    render(<WeatherWidget data={day(solar)} />);
+    expect(screen.getByTestId('eclipse-shadow')).toBeTruthy();
+    // Once it has begun the outline has done its job; it would only sit on
+    // top of the real thing.
+    expect(screen.queryByTestId('eclipse-marker')).toBeNull();
+    expect(screen.getByTestId('eclipse-line')).toBeTruthy();
+  });
+
+  it('is gone once it is over', () => {
+    at(15);
+    render(<WeatherWidget data={day(solar)} />);
+    expect(screen.queryByTestId('eclipse-marker')).toBeNull();
+    expect(screen.queryByTestId('eclipse-shadow')).toBeNull();
+    expect(screen.queryByTestId('eclipse-line')).toBeNull();
+  });
+
+  it('turns the moon copper during a lunar eclipse', () => {
+    at(23);
+    jest.mocked(SunCalc.getMoonPosition).mockReturnValue({
+      altitude: 30, azimuth: 180, distance: 384_400, parallacticAngle: 0,
+    });
+    render(<WeatherWidget data={day({
+      ...solar,
+      body: 'moon',
+      kind: 'total',
+      begin: new Date(2026, 6, 17, 22, 0),
+      peak: new Date(2026, 6, 17, 23, 0),
+      end: new Date(2026, 6, 18, 0, 0),
+      obscuration: 1,
+    })} />);
+    expect(screen.getByTestId('eclipse-shadow').getAttribute('fill')).toBe('#B45309');
+    expect(screen.getByTestId('eclipse-line').textContent).toMatch(/^Total lunar eclipse/);
   });
 });

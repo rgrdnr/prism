@@ -10,6 +10,7 @@ import {
 } from '@/lib/community/index';
 import type { CommunityIndexEntry } from '@/lib/community/validateLayout';
 import type { WidgetConfig } from '@/lib/hooks/useLayouts';
+import { useFetchOnMount } from '@/lib/hooks/useFetchOnMount';
 
 interface CommunityGalleryProps {
   mode: 'dashboard' | 'screensaver';
@@ -49,17 +50,14 @@ export function CommunityGallery({ mode, onApplyLayout, currentOrientation }: Co
     ...(search ? { search } : {}),
   }), [mode, orientation, search]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadIndex = useCallback(async (signal: AbortSignal) => {
     setLoadingIndex(true);
-    filterCommunityLayouts(filters).then(result => {
-      if (!cancelled) {
-        setLayouts(result);
-        setLoadingIndex(false);
-      }
-    });
-    return () => { cancelled = true; };
+    const result = await filterCommunityLayouts(filters);
+    if (signal.aborted) return;
+    setLayouts(result);
+    setLoadingIndex(false);
   }, [filters]);
+  useFetchOnMount(loadIndex);
 
   const handleUseLayout = useCallback(async (entry: CommunityIndexEntry) => {
     setLoading(entry.id);
@@ -117,6 +115,7 @@ export function CommunityGallery({ mode, onApplyLayout, currentOrientation }: Co
               if (e.key === 'Enter') setSearch(pendingSearch);
             }}
             placeholder="Search layouts… (Enter)"
+            autoCapitalize="none"
             className="px-2.5 py-1.5 pr-7 text-sm bg-muted/60 border border-border rounded-lg w-52 focus:outline-hidden focus:ring-1 focus:ring-primary focus:bg-muted"
           />
           {pendingSearch && (

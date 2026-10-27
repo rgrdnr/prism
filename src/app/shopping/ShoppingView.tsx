@@ -117,11 +117,11 @@ export function ShoppingView() {
   const {
     draggedCategory,
     handleDragStart, handleDragOver, handleDragEnd,
-    handleTouchStart, handleTouchMove, handleTouchEnd,
+    startTouchDrag, moveTouchDrag, endTouchDrag,
   } = useShoppingDragReorder({ categoryOrder, dynamicCategories, reorderCategories });
 
   const {
-    inlineInputs, setInlineInputs, inputRefs, extraRows,
+    inlineInputs, setInlineInputs, extraRows,
     handleInlineKeyDown, handleInlineBlur, addExtraRows,
   } = useShoppingInlineInput({ activeList, requireAuth, apiAddItem });
 
@@ -345,13 +345,12 @@ export function ShoppingView() {
                       extraRowCount={categoryExtraRows}
                       baseEmptyLines={BASE_EMPTY_LINES}
                       inlineInputValue={inlineInputs[category] || ''}
-                      inputRefs={inputRefs}
                       onDragStart={() => handleDragStart(category)}
                       onDragOver={(e) => handleDragOver(e, category)}
                       onDragEnd={handleDragEnd}
-                      onTouchStart={(e) => handleTouchStart(e, category)}
-                      onTouchMove={handleTouchMove}
-                      onTouchEnd={handleTouchEnd}
+                      onTouchDragStart={() => startTouchDrag(category)}
+                      onTouchDragMove={moveTouchDrag}
+                      onTouchDragEnd={endTouchDrag}
                       onToggleItem={(itemId) => toggleItem(itemId)}
                       onEditItem={handleEditItem}
                       onDeleteItem={(itemId) => handleDeleteItem(itemId)}

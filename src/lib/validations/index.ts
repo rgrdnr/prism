@@ -311,6 +311,12 @@ export const createBusRouteSchema = z.object({
   schoolName: z.string().max(255).optional(),
   enabled: z.boolean().optional().default(true),
   sortOrder: z.number().int().min(0).optional().default(0),
+  // Which live provider track is this route's (see bus-live-ingest.ts).
+  liveMatch: z.object({
+    provider: z.string().min(1).max(50),
+    label: z.string().max(100).optional(),
+    direction: z.enum(['AM', 'PM']).optional(),
+  }).nullable().optional(),
 });
 
 export const updateBusRouteSchema = createBusRouteSchema.partial();
@@ -369,11 +375,13 @@ export const setWeeklyHabitCheckSchema = z.object({
 
 /**
  * Known token scopes. `*` grants full account access (the legacy default).
- * `voice` is restricted to the `/api/v1/voice/*` namespace. New scopes
+ * `voice` is restricted to the `/api/v1/voice/*` namespace. `bus:ingest`
+ * only lets a live position provider post to /api/bus-tracking/live/ingest.
+ * New scopes
  * should be added here AND enforced by `withAuth({ tokenScope: ... })`
  * on the endpoints they cover.
  */
-export const TOKEN_SCOPES = ['*', 'voice'] as const;
+export const TOKEN_SCOPES = ['*', 'voice', 'bus:ingest'] as const;
 export type TokenScope = (typeof TOKEN_SCOPES)[number];
 
 export const createApiTokenSchema = z.object({
@@ -422,6 +430,7 @@ const widgetConfigSchema = z.object({
   gridLineOpacity: z.number().min(0).max(1).optional(),
   cellBackgroundColor: z.string().optional(),
   cellBackgroundOpacity: z.number().min(0).max(1).optional(),
+  showWhenIdle: z.boolean().optional(),
   settings: z.record(z.unknown()).optional(),
 });
 
@@ -431,6 +440,8 @@ export const createLayoutSchema = z.object({
   isDefault: z.boolean().optional().default(false),
   widgets: z.array(widgetConfigSchema).min(1, 'At least one widget is required'),
   screensaverWidgets: z.array(widgetConfigSchema).nullable().optional(),
+  // No default here: a new dashboard gets the column's, an update leaves it.
+  screensaverMode: z.enum(['separate', 'calm']).optional(),
   orientation: z.enum(['landscape', 'portrait']).optional().default('landscape'),
   fontScale: z.number().int().min(50).max(200).nullable().optional(),
   createdBy: uuidSchema.optional(),

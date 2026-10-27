@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from '@/components/ui/use-toast';
+import { useFetchOnMount } from '@/lib/hooks/useFetchOnMount';
 import { getPreferredPlayer, setPreferredPlayer, PLAYER_LABELS, type Player } from '@/lib/utils/vlc';
 
 interface Favorite {
@@ -80,7 +81,7 @@ export function DispatcharrFavoritesSection() {
   const [selectedInstanceId, setSelectedInstanceId] = useState<string>('');
 
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<Channel[]>([]);
+  const [searchResults, setResults] = useState<Channel[]>([]);
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -104,7 +105,7 @@ export function DispatcharrFavoritesSection() {
     }
   }, []);
 
-  useEffect(() => { fetchFavorites(); }, [fetchFavorites]);
+  useFetchOnMount(fetchFavorites);
 
   useEffect(() => {
     fetch('/api/settings')
@@ -167,13 +168,15 @@ export function DispatcharrFavoritesSection() {
     }
   };
 
+  // Results only show while there is a search to show them for; worked out
+  // here rather than cleared in the effect below.
+  const canSearch = !!selectedInstanceId && query.length >= 2;
+  const results = canSearch ? searchResults : [];
+
   // Debounced channel search, same shape as useLocationSearch.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!selectedInstanceId || query.length < 2) {
-      setResults([]);
-      return;
-    }
+    if (!canSearch) return;
 
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
@@ -192,7 +195,7 @@ export function DispatcharrFavoritesSection() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, selectedInstanceId]);
+  }, [canSearch, query, selectedInstanceId]);
 
   const handleAdd = async (channel: Channel) => {
     try {

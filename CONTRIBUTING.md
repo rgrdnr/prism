@@ -57,6 +57,22 @@ npx jest
 npx playwright test
 ```
 
+### Every fix and feature comes with its test
+
+A `fix:` or `feat:` pull request includes a test that fails if the change is
+reverted, so the behaviour cannot quietly come undone later. Check it bites:
+run it once against the code before your change and watch it fail.
+
+- Logic and API behaviour: a jest test.
+- Layout, sizing and scrolling: a Playwright spec that measures the page
+  (`getBoundingClientRect`), since jest cannot see layout.
+- Genuinely nothing testable (copy, a config value): say so in one line in the
+  PR body, `No regression test: <why>`.
+
+The **Regression test** check enforces this. Dependency bumps are exempt, and
+so is a `refactor:` that keeps behaviour the same: the existing tests are its
+guard. A refactor that changes what users see is a `fix:` and needs its test.
+
 ## Code Conventions
 
 - **TypeScript**: Strict mode, no `any` unless unavoidable
