@@ -1,5 +1,6 @@
 'use client';
 
+import { WhatsNewList } from '@/components/layout/WhatsNew';
 import { useState, useMemo } from 'react';
 import { HelpCircle, Search, ChevronRight } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -18,6 +19,7 @@ interface HelpSection {
 function useSections(isMobile: boolean): HelpSection[] {
   return useMemo(() => {
     const all: HelpSection[] = [
+      { id: 'whats-new', title: "What's new", content: <WhatsNewList /> },
       { id: 'getting-started', title: 'Getting Started', content: <GettingStarted /> },
       { id: 'roles', title: 'Roles & Permissions', content: <Roles /> },
       { id: 'dashboard', title: 'Dashboard', desktopOnly: true, content: <DashboardHelp /> },
@@ -73,6 +75,8 @@ export function HelpView() {
     if (!section) return null;
     return (
       <PageWrapper>
+        {/* A fixed height, so the box below scrolls: the page body does not (#843). */}
+        <div className="h-page flex flex-col">
         <SubpageHeader
           icon={<HelpCircle className="h-5 w-5 text-primary" />}
           title={section.title}
@@ -85,10 +89,11 @@ export function HelpView() {
             </button>
           }
         />
-        <div className="flex-1 overflow-auto p-4">
+        <div className="flex-1 min-h-0 overflow-auto p-4">
           <div className="max-w-3xl mx-auto prose prose-sm dark:prose-invert">
             {section.content}
           </div>
+        </div>
         </div>
       </PageWrapper>
     );
@@ -96,11 +101,12 @@ export function HelpView() {
 
   return (
     <PageWrapper>
+      <div className="h-page flex flex-col">
       <SubpageHeader
         icon={<HelpCircle className="h-5 w-5 text-primary" />}
         title="Help"
       />
-      <div className="flex-1 overflow-auto p-4">
+      <div className="flex-1 min-h-0 overflow-auto p-4">
         <div className="max-w-3xl mx-auto space-y-4">
           {/* Search */}
           <div className="relative">
@@ -131,6 +137,7 @@ export function HelpView() {
             )}
           </div>
         </div>
+      </div>
       </div>
     </PageWrapper>
   );
@@ -296,7 +303,7 @@ function CalendarHelp({ isMobile }: { isMobile: boolean }) {
       {!isMobile && (
         <>
           <H2>Views</H2>
-          <P>Agenda, Day, Week, List, Multi-Week (1-4W), Month, and 3-Month. Switch views using the toolbar buttons. The grid lines toggle (grid icon) shows or hides cell borders across all grid-based views.</P>
+          <P>Agenda, Day, List, Schedule, 2 Weeks, Month, and 3 Months. Switch views using the toolbar buttons. The grid lines toggle (grid icon) shows or hides cell borders across all grid-based views.</P>
 
           <H2>Calendar Notes</H2>
           <P>Click the sticky note icon to show a notes panel alongside Day or List views. Notes are day-tied, shared across the family, and support formatting shortcuts: Ctrl+B bold, Ctrl+I italic, Ctrl+U underline, Ctrl+Shift+S strikethrough, Ctrl+Shift+L bullet list. Type &quot;- &quot; at the start of a line to auto-convert to a bullet.</P>
@@ -584,6 +591,8 @@ function SettingsHelp({ isMobile }: { isMobile: boolean }) {
           <P>How large everything reads on each dashboard. It scales the whole board at once, separately from the per-widget text size in the layout editor, and does not change other pages.</P>
         </>
       )}
+      <H3>Displays</H3>
+      <P>Name each screen from the screen itself, for example &quot;Kitchen&quot;, and see every named screen and whether it is on. A named screen keeps its screensaver, performance, keyboard and screen-shape settings with its name, so a reset browser can take them back with <em>Or this is an existing screen</em>. Each screen can open on its own dashboard. A browser nobody named works as before.</P>
       <H3>Photos</H3>
       <P>Add photo sources (OneDrive, Immich), pick sync folders, and set a static wallpaper or screensaver photo.</P>
       <H3>Bus Tracking</H3>
@@ -611,7 +620,7 @@ function IntegrationsHelp() {
       <H2>Google Tasks</H2>
       <P>An alternative task provider. Connect Google Tasks from the Google card and map it to a task list.</P>
       <H2>Apple iCloud / CalDAV</H2>
-      <P>Connect iCloud (or any CalDAV server) for calendars, Reminders, and optional contact birthdays. See the <strong>Apple iCloud (CalDAV)</strong> help section for setup. Read-only for edits, but deleting a single (non-recurring) synced event in Prism now removes it upstream too.</P>
+      <P>Connect iCloud (or any CalDAV server) for calendars, Reminders, and optional contact birthdays. See the <strong>Apple iCloud (CalDAV)</strong> help section for setup. New events and edits you make in Prism are written to the calendar, and deleting a single (non-recurring) synced event removes it there too. New repeating events stay in Prism for now.</P>
       <H2>Kroger / Mariano&apos;s Cart</H2>
       <P>Push your shopping list to your online Kroger / Mariano&apos;s cart. See the <strong>Kroger / Mariano&apos;s Cart</strong> help section.</P>
       <H2>Gmail Bus Tracking</H2>

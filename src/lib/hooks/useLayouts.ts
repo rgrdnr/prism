@@ -2,10 +2,8 @@
 
 import { useState, useCallback } from 'react';
 import { useFetchOnMount } from './useFetchOnMount';
-
-/** What the display shows when idle: a separate screensaver layout, or the
- *  dashboard itself with only some widgets left showing (calm mode, #691). */
-export type ScreensaverMode = 'separate' | 'calm';
+import type { IdleBackground } from '@/lib/idleBackground';
+import { sharedGet } from '@/lib/utils/sharedGet';
 
 export interface WidgetConfig {
   i: string;
@@ -27,6 +25,12 @@ export interface WidgetConfig {
   /** Calm mode: stays on screen while the display is idle. Unset uses the
    *  default for the widget (see shownWhenIdle). */
   showWhenIdle?: boolean;
+  /** Not drawn while it has nothing to show (#738). Unset uses the default for
+   *  where it is drawn: on for the screensaver and a calm dashboard's idle
+   *  screen, off for a dashboard in use. See hideWhenEmpty.ts. */
+  hideWhenEmpty?: boolean;
+  /** Left out on a small screen so the rest have room (#803). See smallScreen.ts. */
+  hideOnSmallScreen?: boolean;
   settings?: Record<string, unknown>;
 }
 
@@ -37,9 +41,11 @@ export interface Layout {
   isDefault: boolean;
   widgets: WidgetConfig[];
   screensaverWidgets: WidgetConfig[] | null;
-  screensaverMode?: ScreensaverMode;
+  idleBackground?: IdleBackground;
   orientation: string;
   fontScale: number | null;
+  /** How it is drawn (#907): the widget grid, or Today, one scene over the photo. */
+  view?: 'grid' | 'today' | 'calendar';
   createdBy?: string;
   createdAt: string;
   updatedAt: string;
@@ -64,7 +70,7 @@ export function useLayouts(): UseLayoutsResult {
   const fetchLayouts = useCallback(async () => {
     try {
       setError(null);
-      const response = await fetch('/api/layouts');
+      const response = await sharedGet('/api/layouts');
       if (!response.ok) throw new Error('Failed to fetch layouts');
       const data = await response.json();
       // Normalize widget format: DB may store {type, position:{x,y,w,h}}

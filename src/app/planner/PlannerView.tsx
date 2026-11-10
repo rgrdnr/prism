@@ -266,7 +266,7 @@ export function PlannerView() {
                             ))}
                             <button
                               onClick={() => openAddMeal(bucket.date)}
-                              className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+                              className="text-2xs text-muted-foreground hover:text-foreground flex items-center gap-1"
                             >
                               <Plus className="h-3 w-3" /> Add
                             </button>
@@ -301,7 +301,7 @@ export function PlannerView() {
                               >
                                 <span className="font-medium truncate block">{event.title}</span>
                                 {!event.allDay && (
-                                  <span className={cn('block text-[10px]', highlighted ? 'opacity-85' : 'opacity-70')}>
+                                  <span className={cn('block text-3xs', highlighted ? 'opacity-85' : 'opacity-70')}>
                                     {formatDisplayTimeRange(
                                       event.startTime,
                                       event.endTime ?? new Date(event.startTime.getTime() + 3600000),
@@ -329,7 +329,7 @@ export function PlannerView() {
                         })}
                         <button
                           onClick={() => openAddEvent(bucket.date)}
-                          className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+                          className="text-2xs text-muted-foreground hover:text-foreground flex items-center gap-1"
                         >
                           <Plus className="h-3 w-3" /> Add activity
                         </button>
@@ -409,7 +409,7 @@ export function PlannerView() {
                     placeholder="Shopping list, reminders, anything for the week…"
                     className="min-h-[140px] text-sm"
                   />
-                  {noteSaving && <div className="text-[11px] text-muted-foreground mt-1">Saving…</div>}
+                  {noteSaving && <div className="text-2xs text-muted-foreground mt-1">Saving…</div>}
                 </div>
                 <div className="rounded-lg border border-border bg-card/60 p-3 flex gap-4">
                   <MiniMonth month={currentWeek} today={today} />

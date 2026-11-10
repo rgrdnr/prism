@@ -1,5 +1,13 @@
 'use client';
 
+import { PhotoCaption } from '@/components/layout/PhotoCaption';
+import { focalOf } from '@/lib/photos/focalPoint';
+import { CENTRED, photoFrame } from '@/lib/photos/frame';
+import { coveredRects } from '@/lib/photos/frameDom';
+import { PhotoStage } from '@/components/layout/PhotoStage';
+import { isNightAt, nightRule } from '@/lib/throughTheDay';
+import { usePhotoTone } from '@/components/layout/WallpaperBackground';
+import { waterVars } from '@/lib/design/water';
 import * as React from 'react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useIdleDetection } from '@/lib/hooks/useIdleDetection';
@@ -16,6 +24,7 @@ import { GRID_COLS } from '@/lib/constants/grid';
 import { CssGridDisplay } from '@/components/layout/grid/CssGridDisplay';
 import { CalendarPrefsScopeContext } from '@/lib/hooks/useCalendarWidgetPrefs';
 import { loadScreensaverLayout } from './screensaverStorage';
+import { hidesWhenEmpty } from '@/components/layout/grid/hideWhenEmpty';
 import { shouldShowScreensaver } from './shouldShowScreensaver';
 import { rotate, showingCount } from './screensaverRotation';
 import { useScreensaverMotion } from './useScreensaverMotion';
@@ -24,14 +33,16 @@ import { EffectStage } from './EffectStage';
 import { ScreensaverQuickSettings } from './ScreensaverQuickSettings';
 import { getEffect } from './effects';
 import { scaledDuration } from './screensaverPrefs';
-import { usePerformanceMode } from '@/lib/hooks/usePerformanceMode';
+import { useAutoPerformance, usePerformanceModeOn } from '@/lib/hooks/usePerformanceMode';
 import { useScreenSafeZones } from '@/lib/hooks/useScreenSafeZones';
 import { useViewportSize } from '@/lib/hooks/useViewportSize';
 import { setDisplayIdle } from '@/lib/hooks/useDisplayIdle';
 import { PollingScopeContext } from '@/lib/hooks/pollingScope';
 import { useResetOn } from '@/lib/hooks/useResetOn';
-import { useScreensaverBackdrop, useSkyLocation, useSkyShowing } from './useScreensaverBackdrop';
-import { setCalmIdle, useActiveScreensaverMode } from './calmMode';
+import { useIdleSource, useSkyLocation } from './useIdleBackground';
+import { setCalmIdle, useActiveIdleBackground } from './calmMode';
+import { needsLocation } from '@/lib/idleBackground';
+import { IdleDim } from './idleDim';
 
 // Only displays that choose the sky load its star catalogue.
 const NightSky = React.lazy(() => import('./nightSky/NightSky').then((m) => ({ default: m.NightSky })));
@@ -49,7 +60,7 @@ export const SCREENSAVER_WIDGET_CLASS =
   // Force white text for legibility over the photo — EXCEPT elements marked
   // data-keep-color (e.g. the birthdays "days until" urgency coloring), which
   // keep their own color but still get the shadow.
-  '[&_*:not([data-keep-color])]:text-white! **:[text-shadow:0_1px_4px_rgba(0,0,0,0.75)]';
+  '[&_*:not([data-keep-color])]:text-(--ss-ink)! **:[text-shadow:0_1px_4px_rgba(0,0,0,0.75)]';
 
 // Re-export storage utilities for consumers
 export {
@@ -75,14 +86,23 @@ export function Screensaver() {
   const { isAway } = useAwayMode();
   const { isActive: isBabysitter } = useBabysitterMode();
   const idle = shouldShowScreensaver({ idle: idleNow, away: isAway, babysitter: isBabysitter });
-  // A calm dashboard is its own idle screen (#691): this decides when, and the
+  // What shows behind it (#782), which can change with the time of day. When
+  // it is the dashboard itself (calm mode, #691) this decides when, and the
   // dashboard does the showing, so there is no overlay to put up.
-  const calm = useActiveScreensaverMode() === 'calm';
+  const background = useActiveIdleBackground();
+  const { lat, lon, eclipse } = useSkyLocation(needsLocation(background));
+  const source = useIdleSource(background, lat, lon, idle);
+  const calm = source === 'dashboard';
+  const showSky = source === 'sky';
+  // Under the sky or a black screen there are no photos to load.
+  const noPhotos = showSky || source === 'off';
   const isIdle = idle && !calm;
   useEffect(() => {
     setCalmIdle(idle && calm);
     return () => setCalmIdle(false);
   }, [idle, calm]);
+  // Going idle and waking are the fades Auto performance times.
+  useAutoPerformance(idle);
   const { enabled: autoOrientation } = useAutoOrientationSetting();
   const { pinnedId } = usePinnedPhoto('screensaver');
   const { interval: screensaverInterval } = useScreensaverInterval();
@@ -107,26 +127,16 @@ export function Screensaver() {
     return () => setDisplayIdle(false);
   }, [isIdle]);
 
-  const { backdrop } = useScreensaverBackdrop();
-  const { lat, lon } = useSkyLocation(backdrop !== 'photos');
-  const showSky = useSkyShowing(backdrop, lat, lon, isIdle);
-
   const [visible, setVisible] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [fadingOut, setFadingOut] = useState(false);
 
   // Only rotate if no pinned photo and interval is not "never" (0)
   useEffect(() => {
-    if (!isIdle || showSky || photos.length <= 1 || pinnedId || screensaverInterval === 0) return;
-    const timer = setInterval(() => {
-      setFadingOut(true);
-      setTimeout(() => {
-        setCurrentIndex((i) => (i + 1) % photos.length);
-        setFadingOut(false);
-      }, 1000);
-    }, screensaverInterval * 1000);
+    if (!isIdle || noPhotos || photos.length <= 1 || pinnedId || screensaverInterval === 0) return;
+    // The photo stage crossfades to the next one (#954).
+    const timer = setInterval(() => setCurrentIndex((i) => (i + 1) % photos.length), screensaverInterval * 1000);
     return () => clearInterval(timer);
-  }, [isIdle, showSky, photos.length, pinnedId, screensaverInterval]);
+  }, [isIdle, noPhotos, photos.length, pinnedId, screensaverInterval]);
 
   // Fade in a tick after it mounts; start over transparent each time it ends.
   useResetOn(isIdle, () => {
@@ -138,52 +148,106 @@ export function Screensaver() {
     return () => clearTimeout(timer);
   }, [isIdle]);
 
-  if (!isIdle) return null;
-
   // Use pinned photo if set, otherwise use rotating photos. None at all under
   // the sky, so it loads nothing for as long as it is up.
-  const src = showSky ? '' : pinnedId
+  const src = noPhotos ? '' : pinnedId
     ? `/api/photos/${pinnedId}/file`
     : photos[currentIndex]
       ? `/api/photos/${photos[currentIndex]!.id}/file`
       : '';
 
-  return (
-    <div
-      className={`fixed inset-0 z-9999 bg-black transition-opacity duration-1000 ${
-        visible ? 'opacity-100' : 'opacity-0'
-      }`}
-    >
-      {/* Decorative layers are absolutely positioned, so in CSS paint order they
-          sit ABOVE the (statically-positioned) widget grid and would swallow every
-          tap. pointer-events-none lets taps fall through to the widgets — needed
-          for the calendar view controls to be operable on the screensaver. */}
-      {src && (
+  // Night by the dashboard's one rule (#1152): the warm ink (#929) and the dim.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  useResetOn(idle, () => setNowTick(Date.now()));
+  const night = isNightAt(nightRule(background), new Date(nowTick), lat, lon);
+  const tone = usePhotoTone(isIdle && src ? src : null);
+  const shadeVars = waterVars(tone, 0.25);
+
+  // Over both idle screens, so it is outside the overlay below and stays
+  // mounted while a calm dashboard is idle. Same place in both returns, so it
+  // keeps its state and eases out on waking.
+  const dim = <IdleDim idle={idle} night={night} />;
+  if (!isIdle) return <>{dim}{null}</>;
+
+  // Night look "off" (#1152): nothing but black until a touch.
+  if (source === 'off') {
+    return (
+      <>
+        {dim}
         <div
-          className="pointer-events-none absolute inset-0 bg-cover bg-center transition-opacity duration-1000"
-          style={{
-            backgroundImage: `url(${src})`,
-            opacity: fadingOut ? 0 : 1,
-          }}
+          className={`fixed inset-0 z-9999 bg-black transition-opacity duration-1000 ${visible ? 'opacity-100' : 'opacity-0'}`}
+          data-screensaver
+          data-screensaver-off
         />
-      )}
-      {showSky ? (
-        <React.Suspense fallback={null}>
-          <NightSky lat={lat} lon={lon} />
-        </React.Suspense>
-      ) : (
-        // Photos are dimmed so the white widget text reads over them. The sky
-        // is already dark where it matters.
-        <div className="pointer-events-none absolute inset-0 bg-black/40" />
-      )}
-      {/* Scoped from out here rather than inside ScreensaverGrid: the grid
-          calls useDashboardData in its own body, which reads context from
-          where the grid SITS, not from what it renders. */}
-      <PollingScopeContext.Provider value="screensaver">
-        <ScreensaverGrid />
-      </PollingScopeContext.Provider>
-      <ScreensaverQuickSettings />
-    </div>
+      </>
+    );
+  }
+
+
+  return (
+    <>
+      {dim}
+      <div
+        className={`fixed inset-0 z-9999 bg-black transition-opacity duration-1000 ${
+          visible ? 'opacity-100' : 'opacity-0'
+        }`}
+        // Today's materials (#929): one ink, warm after dusk, and the shades
+        // under the corners and the foot solved for this photo.
+        style={{ '--ss-ink': night ? 'rgb(255 226 190)' : 'white', ...shadeVars } as React.CSSProperties}
+        data-screensaver-night={night || undefined}
+        data-screensaver
+      >
+        {/* Decorative layers are absolutely positioned, so in CSS paint order they
+            sit ABOVE the (statically-positioned) widget grid and would swallow every
+            tap. pointer-events-none lets taps fall through to the widgets — needed
+            for the calendar view controls to be operable on the screensaver. */}
+        {src && (
+          <PhotoStage
+            src={src}
+            frameFor={(url) => {
+              // Frame the subject clear of the screensaver's widgets (#957).
+              const p = pinnedId ? undefined : photos.find((x) => url.endsWith(`/${x.id}/file`));
+              if (!p?.width || !p.height) return CENTRED;
+              return photoFrame({ aspect: p.width / p.height, screen: { width: window.innerWidth, height: window.innerHeight }, covered: coveredRects(), focal: focalOf(p) });
+            }}
+            zoomMs={pinnedId || screensaverInterval === 0 ? 0 : screensaverInterval * 1000}
+          />
+        )}
+        {showSky ? (
+          <React.Suspense fallback={null}>
+            <NightSky lat={lat} lon={lon} eclipse={eclipse} />
+          </React.Suspense>
+        ) : (
+          // A light dim over the photo, and the shades only where text sits,
+          // as on the wall (#799, #929). The sky is already dark where it matters.
+          <>
+            <div className="pointer-events-none absolute inset-0 bg-black/25" />
+            <div
+              className="pointer-events-none absolute inset-0"
+              data-screensaver-shade
+              style={{ backgroundImage: [
+                'radial-gradient(45% 40% at 0% 0%, rgb(0 0 0 / var(--ds-shade-tl, 0.35)), transparent)',
+                'radial-gradient(45% 40% at 100% 0%, rgb(0 0 0 / var(--ds-shade-tr, 0.35)), transparent)',
+                'linear-gradient(to top, rgb(0 0 0 / var(--ds-shade-bottom, 0.35)), transparent 35%)',
+              ].join(', ') }}
+            />
+            {/* When it was taken, and where if shown (#958). */}
+            <PhotoCaption photo={pinnedId ? { id: pinnedId, takenAt: null } : photos[currentIndex] ? { id: photos[currentIndex]!.id, takenAt: photos[currentIndex]!.takenAt } : null} />
+          </>
+        )}
+        {/* Scoped from out here rather than inside ScreensaverGrid: the grid
+            calls useDashboardData in its own body, which reads context from
+            where the grid SITS, not from what it renders. */}
+        <PollingScopeContext.Provider value="screensaver">
+          <ScreensaverGrid />
+        </PollingScopeContext.Provider>
+        <ScreensaverQuickSettings />
+      </div>
+    </>
   );
 }
 
@@ -234,9 +298,15 @@ function ScreensaverGrid() {
   // Which widgets are currently on screen. Off by default, in which case every
   // widget shows and all of this is inert.
   const { motion, interval: motionInterval, floor, ceiling, outlines, drift, waterClear, ready } = useScreensaverMotion();
+  // Widgets showing their empty state. One set to hide when empty (on by
+  // default here, #738) sits out the rotation too, or it would take a turn and
+  // leave a gap where it should have been.
+  const [emptyIds, setEmptyIds] = useState<ReadonlySet<string>>(() => new Set());
   const widgetIds = useMemo(
-    () => layout.filter((w) => w.visible !== false).map((w) => w.i),
-    [layout],
+    () => layout
+      .filter((w) => w.visible !== false && !(emptyIds.has(w.i) && hidesWhenEmpty(w, true)))
+      .map((w) => w.i),
+    [layout, emptyIds],
   );
 
   /** Horizontal centre of each widget, so a pour can find a partner across the
@@ -255,7 +325,7 @@ function ScreensaverGrid() {
   // win on thin clients, so handing those same displays a particle system would
   // be backwards. Both it and prefers-reduced-motion fall back to the plain
   // fade rather than to nothing, so the rotation still reads as intentional.
-  const { enabled: lowPower } = usePerformanceMode();
+  const lowPower = usePerformanceModeOn();
   const reduced = useMemo(
     () => typeof window !== 'undefined'
       && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
@@ -413,6 +483,8 @@ function ScreensaverGrid() {
         screenFrame={screenFrame}
         headerOffset={0}
         drift={drift}
+        hideEmptyByDefault
+        onEmptyChange={setEmptyIds}
         className="w-full h-full"
       />
       </EffectStage>

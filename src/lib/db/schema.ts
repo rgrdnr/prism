@@ -15,6 +15,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
+import type { IdleBackground } from '../idleBackground';
 
 
 export const users = pgTable('users', {
@@ -99,6 +100,9 @@ export const calendarSources = pgTable('calendar_sources', {
   // Whether this calendar appears in the "Add Event" modal for creating events
   // Subscription/read-only calendars should have this set to false
   showInEventModal: boolean('show_in_event_modal').default(true).notNull(),
+
+  // Display rules (#877): busy only, hide after a time, birthdays as name and age.
+  displayRules: jsonb('display_rules').$type<import('@/lib/calendar/displayRules').DisplayRules>(),
 
   // Whether this is a family-shared calendar (vs personal or unassigned)
   isFamily: boolean('is_family').default(false).notNull(),
@@ -367,6 +371,21 @@ export const tasks = pgTable('tasks', {
 }));
 
 
+/**
+ * Pets (#996): a name, a kind and a colour. Not household members, which are
+ * accounts with a role, PIN and sign-in; a chore or reminder can be for one.
+ */
+export const pets = pgTable('pets', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  kind: varchar('kind', { length: 20 }).default('other').notNull().$type<'cat' | 'dog' | 'other'>(),
+  color: varchar('color', { length: 7 }).notNull(),
+  sortOrder: integer('sort_order').default(0).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type Pet = typeof pets.$inferSelect;
+
 export const chores = pgTable('chores', {
   id: uuid('id').defaultRandom().primaryKey(),
 
@@ -396,6 +415,13 @@ export const chores = pgTable('chores', {
   // Optional time-of-day for the chore (HH:mm). Null = "top of day" / floats.
   // Used by time-grid calendar views to place the chore at a specific hour.
   nextDueTime: varchar('next_due_time', { length: 5 }),
+  // A daily chore done more than once a day (#1107): due today until ticked
+  // this many times today.
+  timesPerDay: integer('times_per_day').default(1).notNull(),
+  // A reminder (#1109): a chore with a time, no points and no approval.
+  kind: varchar('kind', { length: 20 }).default('chore').notNull().$type<'chore' | 'reminder'>(),
+  // Who it is for, when that is a pet (#996). Removing the pet clears it.
+  petId: uuid('pet_id').references(() => pets.id, { onDelete: 'set null' }),
 
   pointValue: integer('point_value').default(0).notNull(),
 
@@ -940,16 +966,24 @@ export const layouts = pgTable('layouts', {
   // Per-dashboard screensaver layout (null = use default template)
   screensaverWidgets: jsonb('screensaver_widgets'),
 
-  // What the display shows when idle: 'separate' is the screensaver layout
-  // above, 'calm' is this dashboard itself with only some widgets left showing
-  // (#691). Dashboards from before calm mode stay 'separate'; see 0036.
-  screensaverMode: varchar('screensaver_mode', { length: 20 }).default('calm').notNull(),
+  // What the display shows behind it when idle (#782): this dashboard itself
+  // with only some widgets left showing, or the screensaver layout above over
+  // photos or the night sky, or one by day and another after dark. See
+  // src/lib/idleBackground.ts. It replaced `screensaver_mode` (calm or
+  // separate), which 0039 converted and which the database still holds,
+  // unread, so a rollback finds it.
+  idleBackground: jsonb('idle_background').$type<IdleBackground>().default({ source: 'dashboard' }).notNull(),
 
   // Per-dashboard screen orientation
   orientation: varchar('orientation', { length: 20 }).default('landscape'),
 
   // Per-dashboard font scale (percentage, e.g. 90, 100, 110 — null = 100)
   fontScale: integer('font_scale'),
+
+  // How the dashboard is drawn (#907): 'grid' (widgets on the grid) or
+  // 'today' (one scene over the photo; the widgets are its parts, shown or
+  // hidden, and their positions are not used).
+  view: varchar('view', { length: 20 }).default('grid').notNull(),
 
   createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -979,6 +1013,26 @@ export const apiTokens = pgTable('api_tokens', {
   tokenHashIdx: uniqueIndex('api_tokens_token_hash_idx').on(table.tokenHash),
   createdByIdx: index('api_tokens_created_by_idx').on(table.createdBy),
 }));
+
+/**
+ * A screen a parent has named (#690). The browser holds a signed cookie with
+ * the row's id; a browser nobody named has no row and behaves as before.
+ */
+export const displays = pgTable('displays', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: varchar('name', { length: 60 }).notNull(),
+  // Touched by the screen's own heartbeat, for "online 2 min ago".
+  lastSeenAt: timestamp('last_seen_at'),
+  // The screen's own settings, keyed by the browser storage key each one
+  // already uses (see SCREEN_SETTING_KEYS). A key that is absent is unset.
+  settings: jsonb('settings').$type<Record<string, string>>().default({}).notNull(),
+  // When `settings` last changed, so the screen knows to pick up a remote edit.
+  settingsUpdatedAt: timestamp('settings_updated_at'),
+  // The dashboard this screen opens on; null is the household default.
+  dashboardId: uuid('dashboard_id').references(() => layouts.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
 
 
 export const apiCredentials = pgTable('api_credentials', {
@@ -1350,6 +1404,16 @@ export const photos = pgTable('photos', {
   orientation: varchar('orientation', { length: 20 })
     .$type<'landscape' | 'portrait' | 'square'>(),
 
+  // Where the photo's subject is, as fractions of its width and height
+  // (#956). Found once in the browser; null until then, read as the centre.
+  focalX: real('focal_x'),
+  focalY: real('focal_y'),
+
+  // Where it was taken, as a short name (#958): looked up once, only while
+  // the household shows places; placeLookedUp stops a second lookup.
+  placeName: varchar('place_name', { length: 120 }),
+  placeLookedUp: boolean('place_looked_up').default(false).notNull(),
+
   // Comma-separated display contexts (e.g., "wallpaper,screensaver")
   usage: varchar('usage', { length: 100 }).default('wallpaper,gallery,screensaver').notNull(),
 
@@ -1619,6 +1683,9 @@ export const busRoutes = pgTable('bus_routes', {
 
   enabled: boolean('enabled').default(true).notNull(),
   sortOrder: integer('sort_order').default(0).notNull(),
+
+  // Minutes to walk to the stop (#900): Now & Next shows when to leave. 0 = none.
+  walkMinutes: integer('walk_minutes').default(0).notNull(),
 
   // Which live provider track belongs to this route. Tracks arrive daily with
   // opaque keys, so the binding is by provider + label + direction instead.

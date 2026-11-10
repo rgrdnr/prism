@@ -1,6 +1,9 @@
 'use client';
 
+import type { DisplayRules } from '@/lib/calendar/displayRules';
+import { FAMILY_COLOR } from '@/lib/constants/memberColors';
 import { useState, useEffect } from 'react';
+import { addIcalSubscription } from '@/lib/calendar/addIcalSubscription';
 import { toast } from '@/components/ui/use-toast';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useConfirmDialog } from '@/lib/hooks/useConfirmDialog';
@@ -20,6 +23,7 @@ import { CalendarColorPicker } from '../components/CalendarColorPicker';
 import { useHiddenHours } from '@/lib/hooks/useHiddenHours';
 import { useOAuthConfigStatus } from './integrations/shared/useOAuthConfigStatus';
 import { useLocalCopy, keepLocalOrder } from '@/lib/hooks/useLocalCopy';
+import { canAddEventsTo, looksReadOnlyCalendar } from '@/lib/utils/calendarWritable';
 
 export function CalendarsSection({ onSynced }: { onSynced?: () => void } = {}) {
   const stamp = useDisplayTimestampFormat();
@@ -43,7 +47,7 @@ export function CalendarsSection({ onSynced }: { onSynced?: () => void } = {}) {
   const [restoringId, setRestoringId] = useState<string | null>(null);
 
   const familyCalendarColor = typeof window !== 'undefined'
-    ? localStorage.getItem('prism-family-calendar-color') || '#F59E0B'
+    ? localStorage.getItem('prism-family-calendar-color') || FAMILY_COLOR
     : '#F59E0B';
 
   useEffect(() => {
@@ -548,17 +552,8 @@ export function CalendarsSection({ onSynced }: { onSynced?: () => void } = {}) {
                   </div>
                   {/* Show in Event Modal toggle - only for writable calendars */}
                   {(() => {
-                    // Detect subscription/read-only calendars by common patterns
-                    const name = cal.dashboardCalendarName.toLowerCase();
-                    const isSubscription = cal.provider !== 'local' && (
-                      name.includes('birthday') ||
-                      name.includes('holiday') ||
-                      name.includes('contacts') ||
-                      name.startsWith('subscribe') ||
-                      name.includes('phases of the moon') ||
-                      name.includes('week numbers')
-                    );
-                    const isWritable = cal.provider === 'local' || (cal.provider === 'google' && !isSubscription);
+                    const isSubscription = cal.provider !== 'local' && looksReadOnlyCalendar(cal.dashboardCalendarName);
+                    const isWritable = canAddEventsTo(cal);
 
                     return (
                       <div className="flex items-center justify-between mt-2 pt-2 border-t border-border">
@@ -567,7 +562,7 @@ export function CalendarsSection({ onSynced }: { onSynced?: () => void } = {}) {
                             Show in &quot;Add Event&quot; modal
                           </span>
                           {isSubscription && (
-                            <Badge variant="outline" className="text-[10px] px-1 py-0 opacity-60">Read-only</Badge>
+                            <Badge variant="outline" className="text-3xs px-1 py-0 opacity-60">Read-only</Badge>
                           )}
                         </div>
                         <Switch
@@ -632,6 +627,11 @@ export function CalendarsSection({ onSynced }: { onSynced?: () => void } = {}) {
                       className="data-[state=checked]:bg-blue-500"
                     />
                   </div>
+                  <CalendarDisplayRules
+                    calendarId={cal.id}
+                    rules={(cal as { displayRules?: DisplayRules | null }).displayRules ?? null}
+                    onSaved={(next) => setLocalCalendars((prev) => prev.map((lc) => lc.id === cal.id ? { ...lc, displayRules: next } : lc))}
+                  />
                 </div>
               ))}
             </div>
@@ -860,36 +860,16 @@ function AddIcalSubscriptionCard({ onAdded }: { onAdded: () => void }) {
   const submit = async () => {
     if (!url.trim()) return;
     setSubmitting(true);
-    try {
-      const body: Record<string, string> = { url: url.trim(), type: 'ical' };
-      if (name.trim()) body.name = name.trim();
-      const res = await fetch('/api/calendar-sources', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        toast({ title: data.error || 'Failed to add calendar', variant: 'destructive' });
-        return;
-      }
-      toast({ title: 'Subscription added — first sync running in background', variant: 'success' });
-      setUrl('');
-      setName('');
-      onAdded();
-      // The server imports the feed in the background, then invalidates the
-      // events cache. Nudge calendar views to refetch as it lands — one now,
-      // and a couple of staggered follow-ups to cover the sub-second-to-a-few-
-      // seconds a first import takes — so events appear without a page refresh.
-      window.dispatchEvent(new Event('prism:calendar-synced'));
-      [2500, 6000].forEach((ms) =>
-        setTimeout(() => window.dispatchEvent(new Event('prism:calendar-synced')), ms),
-      );
-    } catch (err) {
-      toast({ title: err instanceof Error ? err.message : 'Failed to add calendar', variant: 'destructive' });
-    } finally {
-      setSubmitting(false);
+    const error = await addIcalSubscription(url, name);
+    setSubmitting(false);
+    if (error) {
+      toast({ title: error, variant: 'destructive' });
+      return;
     }
+    toast({ title: 'Subscription added — first sync running in background', variant: 'success' });
+    setUrl('');
+    setName('');
+    onAdded();
   };
 
   return (
@@ -1000,5 +980,64 @@ function AdvancedCalendarSyncCard() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Display rules for one calendar (#877): show its events as Busy, hide them
+ * after a time of day, and read birthdays as name and age.
+ */
+function CalendarDisplayRules({ calendarId, rules, onSaved }: {
+  calendarId: string;
+  rules: DisplayRules | null;
+  onSaved: (next: DisplayRules | null) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const save = async (patch: Partial<DisplayRules>) => {
+    const next = { ...(rules ?? {}), ...patch };
+    if (!next.busyOnly) delete next.busyOnly;
+    if (!next.birthdays) delete next.birthdays;
+    if (!next.hideAfter) delete next.hideAfter;
+    const value = Object.keys(next).length ? next : null;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/calendars/${calendarId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayRules: value }),
+      });
+      if (res.ok) onSaved(value);
+    } catch { /* ignore */ }
+    setSaving(false);
+  };
+  return (
+    <div className="mt-2 pt-2 border-t border-border space-y-2" data-calendar-rules={calendarId}>
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">Show its events only as &ldquo;Busy&rdquo;</span>
+        <Switch checked={rules?.busyOnly === true} disabled={saving} onCheckedChange={(v) => void save({ busyOnly: v })} aria-label="Show only as Busy" className="data-[state=checked]:bg-blue-500" />
+      </div>
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">Birthdays as name and age</span>
+        <Switch checked={rules?.birthdays === true} disabled={saving} onCheckedChange={(v) => void save({ birthdays: v })} aria-label="Birthdays as name and age" className="data-[state=checked]:bg-blue-500" />
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <label htmlFor={`hide-after-${calendarId}`} className="text-xs text-muted-foreground">
+          Hide today&rsquo;s events after
+        </label>
+        <div className="flex items-center gap-1">
+          <input
+            id={`hide-after-${calendarId}`}
+            type="time"
+            value={rules?.hideAfter ?? ''}
+            disabled={saving}
+            onChange={(e) => void save({ hideAfter: e.target.value || undefined })}
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+          />
+          {rules?.hideAfter && (
+            <Button variant="ghost" size="sm" disabled={saving} onClick={() => void save({ hideAfter: undefined })}>Clear</Button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

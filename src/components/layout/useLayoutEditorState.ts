@@ -6,6 +6,7 @@ import { WIDGET_REGISTRY } from '@/components/widgets/widgetRegistry';
 import { validateCommunityLayout } from '@/lib/community/validateLayout';
 import type { LayoutExportV2, ExportWidget } from './LayoutEditorTypes';
 import { EXPORT_VERSION } from './LayoutEditorTypes';
+import { copyOrDownloadJson, slugify } from '@/lib/utils/downloadJson';
 import type { WidgetConfig } from '@/lib/hooks/useLayouts';
 
 interface UseLayoutEditorStateOptions {
@@ -16,7 +17,6 @@ interface UseLayoutEditorStateOptions {
   onWidgetsChange: (w: WidgetConfig[]) => void;
   onSave: (name?: string) => void | Promise<void>;
   onSaveAs: (name?: string) => void;
-  onScreensaverSave?: () => void;
   onScreensaverSaveAs?: () => void;
   onSelectScreensaverPreset?: (w: WidgetConfig[]) => void;
   onRenameDashboard?: (name: string) => void;
@@ -35,7 +35,6 @@ export function useLayoutEditorState({
   onWidgetsChange,
   onSave,
   onSaveAs,
-  onScreensaverSave,
   onScreensaverSaveAs,
   onSelectScreensaverPreset,
   onRenameDashboard,
@@ -90,20 +89,24 @@ export function useLayoutEditorState({
     const exportData = buildExportData();
     const result = validateCommunityLayout(exportData);
     if (result.warnings.length > 0) console.warn('Layout export warnings:', result.warnings);
-    navigator.clipboard.writeText(JSON.stringify(exportData, null, 2)).then(() => {
-      setExportFeedback('Copied!');
+    // Copy when the page may, else save a file (#1147). The menu closes on
+    // the click, so the result is said in a toast, not on the menu item.
+    copyOrDownloadJson(`prism-layout-${slugify(exportData.name) || 'dashboard'}.json`, exportData).then((how) => {
+      setExportFeedback(how === 'copied' ? 'Copied!' : 'Saved');
       setTimeout(() => setExportFeedback(''), 2000);
+      toast({ title: how === 'copied' ? 'Layout copied' : 'Layout saved as a file' });
     }).catch(() => {
       setExportFeedback('Failed');
       setTimeout(() => setExportFeedback(''), 2000);
+      toast({ title: 'Could not export the layout', variant: 'destructive' });
     });
     setActivePopover(null);
   }, [buildExportData, setActivePopover]);
 
   const handleSave = useCallback(async () => {
     try {
-      if (editingScreensaver) await onScreensaverSave?.();
-      else await onSave();
+      // One Save keeps both tabs (#782).
+      await onSave();
       setSaveFeedback('Saved!');
       setTimeout(() => setSaveFeedback(''), 2000);
     } catch (err) {
@@ -112,7 +115,7 @@ export function useLayoutEditorState({
       setTimeout(() => setSaveFeedback(''), 3000);
       toast({ title: 'Failed to save layout', variant: 'destructive' });
     }
-  }, [editingScreensaver, onScreensaverSave, onSave]);
+  }, [onSave]);
 
   const handleRenameOpen = useCallback(() => {
     setRenameValue(layoutName || '');

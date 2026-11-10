@@ -7,14 +7,17 @@
 
 'use client';
 
+import { trackLastPointer } from '@/lib/input/lastPointer';
 import * as React from 'react';
 import dynamic from 'next/dynamic';
 import { ThemeProvider } from './ThemeProvider';
+import type { DefaultMode } from '@/lib/looks';
 import { LocaleProvider } from './LocaleProvider';
 import { AuthProvider } from './AuthProvider';
 import { FamilyProvider } from './FamilyProvider';
 import { GlobalInputProvider } from '@/lib/hooks/useGlobalInput';
 import { TimeFormatProvider } from './TimeFormatProvider';
+import { DisplayHeartbeat } from '@/components/displays/DisplayHeartbeat';
 
 // simple-keyboard accesses browser globals at module load — must be client-only
 const VirtualKeyboard = dynamic(
@@ -28,6 +31,8 @@ const KeyboardToggleButton = dynamic(
 
 interface ProvidersProps {
   children: React.ReactNode;
+  /** The household default light or dark mode, read on the server (#808). */
+  defaultMode?: DefaultMode;
 }
 
 /**
@@ -35,13 +40,17 @@ interface ProvidersProps {
  * Wraps the application with all necessary providers.
  * AuthProvider must be inside ThemeProvider since QuickPinModal uses styled components.
  */
-export function Providers({ children }: ProvidersProps) {
+// Where taps land, from app start, so a sheet can open on that side (#908).
+trackLastPointer();
+
+export function Providers({ children, defaultMode = 'system' }: ProvidersProps) {
   // No defaultTheme override here. It was 'light' to mask the flash before the
   // stored preference loaded, which also meant a stored 'system' setting was
   // ignored on first render. The blocking script in the root layout now sets
-  // the class before paint, so the mask is no longer needed.
+  // the class before paint, so the mask is no longer needed. The household
+  // default (Night look) applies only where a display never chose.
   return (
-    <ThemeProvider>
+    <ThemeProvider defaultTheme={defaultMode}>
       <LocaleProvider>
         <FamilyProvider>
           <AuthProvider>
@@ -50,6 +59,7 @@ export function Providers({ children }: ProvidersProps) {
                 {children}
                 <VirtualKeyboard />
                 <KeyboardToggleButton />
+                <DisplayHeartbeat />
               </GlobalInputProvider>
             </TimeFormatProvider>
           </AuthProvider>

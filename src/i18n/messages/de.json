@@ -17,7 +17,15 @@
       "travel": "Reisen",
       "weekend": "Wochenendideen",
       "tv": "TV",
-      "settings": "Einstellungen"
+      "settings": "Einstellungen",
+      "menu": "Menü",
+      "more": "Mehr",
+      "signIn": "Anmelden",
+      "help": "Hilfe",
+      "thisScreen": "Dieser Bildschirm",
+      "pages": "Seiten",
+      "label": "Seiten",
+      "home": "Start"
     },
     "actions": {
       "save": "Speichern",
@@ -48,6 +56,7 @@
     "nothingPlanned": "Nichts geplant",
     "noUpcomingEvents": "Keine anstehenden Termine",
     "moreEvents": "+ {count} weitere",
+    "dayPageLabel": "Seite {page} von {pages}, {count} weitere",
     "moreItems": "+{count} weitere Einträge",
     "dayHeader": "{label} – {date}",
     "dateAtTime": "{date} um {time}",
@@ -68,16 +77,10 @@
       "day": "Tag",
       "list": "Liste",
       "schedule": "Terminplan",
-      "week1": "1 Woche",
       "week2": "2 Wochen",
-      "week3": "3 Wochen",
-      "week4": "4 Wochen",
       "month": "Monat",
       "threeMonth": "3 Monate",
-      "week1Short": "1 Wo.",
-      "week2Short": "2 Wo.",
-      "week3Short": "3 Wo.",
-      "week4Short": "4 Wo."
+      "week2Short": "2 Wo."
     },
     "options": {
       "trigger": "Ansicht",
@@ -122,13 +125,20 @@
     "event": {
       "deleteConfirmTitle": "Diesen Termin löschen?",
       "deleteConfirmBody": "Soll dieser Termin wirklich gelöscht werden?",
+      "deleteSeriesConfirmBody": "Damit werden alle Termine dieser Serie gelöscht.",
+      "hideSignInTitle": "Termin ausblenden",
+      "hideSignInBody": "Zum Ausblenden braucht es die PIN eines Elternteils.",
+      "hideParentsOnly": "Nur Eltern können einen Termin ausblenden.",
       "hideInPrism": "In Prism ausblenden",
       "hideInPrismHint": "Der Termin bleibt in seinem Kalender. Unter Einstellungen > Kalender wieder einblenden.",
       "hiddenToast": "„{title}“ ausgeblendet",
       "hiddenToastBody": "Unter Einstellungen > Kalender wieder einblenden.",
       "hideThisEvent": "Nur diesen Termin",
       "hideWholeSeries": "Alle Termine der Serie",
-      "hiddenSeriesToast": "Alle „{title}“ ausgeblendet"
+      "hiddenSeriesToast": "Alle „{title}“ ausgeblendet",
+      "allDay": "ganztägig",
+      "to": "bis",
+      "at": "in"
     },
     "eventForm": {
       "titleNew": "Neuer Termin",
@@ -157,7 +167,27 @@
         "weekly": "Wöchentlich",
         "weekdays": "Jeden Wochentag",
         "monthly": "Monatlich",
-        "yearly": "Jährlich"
+        "yearly": "Jährlich",
+        "label": "Wiederholen",
+        "custom": "Benutzerdefiniert …",
+        "kept": "Eigene Regel aus einer anderen App",
+        "every": "Alle",
+        "interval": "Wie oft",
+        "unitLabel": "Einheit",
+        "unit": "{freq, select, DAILY {{count, plural, one {Tag} other {Tage}}} WEEKLY {{count, plural, one {Woche} other {Wochen}}} MONTHLY {{count, plural, one {Monat} other {Monate}}} other {{count, plural, one {Jahr} other {Jahre}}}}",
+        "repeatOn": "Wiederholen am",
+        "ordinal": "{n, select, 1 {ersten} 2 {zweiten} 3 {dritten} 4 {vierten} other {letzten}}",
+        "monthlyOnDay": "Am {day}.",
+        "monthlyOnWeekday": "Am {ordinal} {weekday}",
+        "yearlyOnDate": "Am {date}",
+        "yearlyOnWeekday": "Am {ordinal} {weekday} im {month}",
+        "ends": "Endet",
+        "endsNever": "Nie",
+        "endsOn": "Am Datum",
+        "endsAfter": "Nach",
+        "endDate": "Letztes Datum",
+        "count": "Anzahl",
+        "times": "{count, plural, one {Termin} other {Terminen}}"
       },
       "reminder": {
         "minutesBefore": "{count, plural, one {# Minute vorher} other {# Minuten vorher}}",
@@ -185,7 +215,14 @@
       "backToDashboard": "Zurück zur Übersicht",
       "hideFailed": "Termin konnte nicht ausgeblendet werden",
       "unhideFailed": "Termin konnte nicht wieder eingeblendet werden"
-    }
+    },
+    "connectInvite": {
+      "title": "Holen Sie Ihre Kalender herein",
+      "body": "Verbinden Sie Google, iCloud, Outlook oder einen Kalender-Link, und die Woche der Familie erscheint hier.",
+      "action": "Kalender verbinden"
+    },
+    "now": "Jetzt",
+    "addEvent": "Termin hinzufügen"
   },
   "birthdays": {
     "title": "Anstehende Geburtstage & Meilensteine",
@@ -225,6 +262,56 @@
       },
       "line": "{name}: {begin} bis {end}, Maximum {peak}",
       "marker": "Finsternis {peak}"
-    }
+    },
+    "high": "bis {temp}"
+  },
+  "nowNext": {
+    "title": "Jetzt & Danach",
+    "now": "Jetzt",
+    "next": "Danach",
+    "until": "bis {time}",
+    "at": "{time} · in {countdown}",
+    "startsIn": "beginnt in {countdown}",
+    "noEvents": "Heute: keine Termine",
+    "nothingElse": "Heute nichts mehr",
+    "bus": "Bus",
+    "busAt": "an der Haltestelle {time} · in {countdown}",
+    "busHere": "jetzt an der Haltestelle",
+    "leave": "Losgehen",
+    "leaveIn": "in {countdown}",
+    "leaveNow": "jetzt",
+    "minutes": "{count} Min.",
+    "hours": "{count} Std.",
+    "hoursMinutes": "{h} Std. {m} Min."
+  },
+  "today": {
+    "at": "{title} {time}",
+    "until": "{title} bis {time}",
+    "nothingElse": "Heute nichts mehr",
+    "sunset": "Sonnenuntergang {time}",
+    "allDay": "Ganztägig: {titles}",
+    "more": "+{count}",
+    "laterToday": "Später heute",
+    "choresLeft": "{count, plural, one {# Aufgabe übrig} other {# Aufgaben übrig}}",
+    "tick": "{title} erledigt",
+    "listCount": "{name} {count}",
+    "addToList": "Zu {name} hinzufügen",
+    "nudgeAge": "{name} wird am {day} {age}. Karte bis {mailDay} abschicken?",
+    "nudgeNoAge": "{name} hat am {day} Geburtstag. Karte bis {mailDay} abschicken?",
+    "addIt": "Hinzufügen",
+    "notNow": "Nicht jetzt",
+    "nothingElseToday": "Heute nichts mehr",
+    "nudgeTask": "Karte an {name} schicken",
+    "nudgeAdded": "Steht für {day} auf der Liste.",
+    "nudgeFailed": "Das wurde nicht gespeichert. Bitte noch einmal.",
+    "nudgeWho": "Wer fügt das hinzu?",
+    "weekRange": "{from} bis {to}",
+    "view": "Ansicht",
+    "week": "Woche",
+    "month": "Monat",
+    "earlier": "Früher",
+    "later": "Später",
+    "allDayShort": "Ganztägig",
+    "next": "Als Nächstes"
   }
 }

@@ -1,4 +1,7 @@
-import type { ScreensaverMode, WidgetConfig } from '@/lib/hooks/useLayouts';
+import type { WidgetConfig } from '@/lib/hooks/useLayouts';
+import type { IdleBackground } from '@/lib/idleBackground';
+import type { EditTab, IdleHalf } from '@/components/dashboard/useDashboardLayout';
+import type { IdleSwitchCheck } from './useIdleSwitchCheck';
 
 export const EXPORT_VERSION = 2;
 
@@ -13,6 +16,8 @@ export interface DashboardInfo {
   name: string;
   slug: string | null;
   isDefault: boolean;
+  /** 'today' is the built-in dashboard (#1151); anything else is the family's own. */
+  view?: string | null;
 }
 
 export interface LayoutEditorProps {
@@ -25,20 +30,30 @@ export interface LayoutEditorProps {
   onDeleteLayout?: (id: string) => void;
   layoutName?: string;
   savedLayouts?: SavedLayout[];
+  /** The Dashboard or Idle screen tab (#782). */
+  editTab?: EditTab;
+  onEditTabChange?: (tab: EditTab) => void;
+  /** Which tabs hold unsaved changes. */
+  dashboardDirty?: boolean;
+  idleDirty?: boolean;
+  /** The Idle screen tab, arranging a screensaver layout. */
   editingScreensaver?: boolean;
-  onToggleScreensaverEdit?: () => void;
   screensaverWidgets?: WidgetConfig[];
   onScreensaverWidgetToggle?: (widgetType: string, visible: boolean) => void;
-  onScreensaverSave?: () => void;
   onScreensaverSaveAs?: () => void;
   onScreensaverReset?: () => void;
   onSelectScreensaverTemplate?: (templateWidgets: WidgetConfig[]) => void;
   screensaverPresets?: Array<{ name: string; widgets: WidgetConfig[] }>;
   onSelectScreensaverPreset?: (widgets: WidgetConfig[]) => void;
   onDeleteScreensaverPreset?: (name: string) => void;
-  /** What the display shows when idle (#691). Omitted: no picker. */
-  screensaverMode?: ScreensaverMode;
-  onScreensaverModeChange?: (mode: ScreensaverMode) => void;
+  /** What the display shows behind it when idle (#782). Omitted: no picker. */
+  idleBackground?: IdleBackground;
+  onIdleBackgroundChange?: (bg: IdleBackground) => void;
+  /** Which half of a day and night pair the Idle screen tab shows. */
+  idleHalf?: IdleHalf;
+  onIdleHalfChange?: (half: IdleHalf) => void;
+  /** Tonight's times and whether the offsets cross, for a day and night pair. */
+  idleCheck?: IdleSwitchCheck;
   screenGuideOrientation?: 'landscape' | 'portrait';
   onScreenGuideOrientationChange?: (o: 'landscape' | 'portrait') => void;
   enabledSizes?: string[];
@@ -54,9 +69,13 @@ export interface LayoutEditorProps {
   allDashboards?: DashboardInfo[];
   currentDashboardId?: string;
   onSwitchDashboard?: (slug: string) => void;
-  onCreateDashboard?: (name: string, startFrom: 'blank' | 'template' | 'copy') => void;
+  onCreateDashboard?: (name: string, startFrom: 'blank' | 'template' | 'copy' | 'today' | 'calendar') => void;
   onRenameDashboard?: (newName: string) => void;
   onDeleteDashboard?: () => void;
+  /** The edited dashboard's kind: 'today' is the built-in one, edited by its widgets list, not a grid. */
+  view?: string | null;
+  /** Put the built-in dashboard's widgets back as they came. */
+  onResetBuiltIn?: () => void;
 }
 
 export interface ExportWidget {

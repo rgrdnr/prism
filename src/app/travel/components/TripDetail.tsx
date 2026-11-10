@@ -46,7 +46,7 @@ function ExpenseRow({ expense, onEdit, onDelete }: { expense: TravelExpense; onE
       <button onClick={onEdit} className="flex-1 min-w-0 text-left">
         <p className="text-xs font-medium truncate">{expense.description}</p>
         {expense.date && (
-          <p className="text-[10px] text-muted-foreground">
+          <p className="text-3xs text-muted-foreground">
             {format(parseISO(expense.date), 'MMM d, yyyy')}
           </p>
         )}
@@ -86,7 +86,7 @@ function SortableStopItem({
       {isNP ? (
         <TreePine className="h-4 w-4 shrink-0" style={{ color: NPS_COLOR }} />
       ) : (
-        <div className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+        <div className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-3xs font-bold text-white"
           style={{ background: isHub ? '#F59E0B' : tripStyle === 'hub' ? '#6B7280' : '#8B5CF6' }}>
           {isHub ? '⌂' : tripStyle === 'hub' ? '·' : stopNumber}
         </div>
@@ -95,7 +95,7 @@ function SortableStopItem({
       <button onClick={onSelect} className="flex-1 min-w-0 text-left">
         <p className="text-xs font-medium truncate">{stop.name}</p>
         {stop.visitedDate && (
-          <p className="text-[10px] text-muted-foreground">
+          <p className="text-3xs text-muted-foreground">
             {format(parseISO(stop.visitedDate), 'MMM d, yyyy')}
           </p>
         )}
@@ -188,7 +188,7 @@ export function TripDetail({
             <span className="text-xs text-muted-foreground">{styleConfig.label}</span>
             {dateStr && <span className="text-xs text-muted-foreground">· {dateStr}</span>}
             <span
-              className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+              className="text-3xs px-1.5 py-0.5 rounded-full font-medium"
               style={{ background: tripColor + '22', color: tripColor }}
             >
               {trip.status === 'been_there' ? '✓ Been There' : 'Want to Go'}
@@ -271,7 +271,7 @@ export function TripDetail({
               {categoryTotals.map(({ cat, total }) => (
                 <span
                   key={cat}
-                  className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                  className="text-3xs px-1.5 py-0.5 rounded-full font-medium"
                   style={{ background: EXPENSE_CATEGORY_CONFIG[cat].color + '22', color: EXPENSE_CATEGORY_CONFIG[cat].color }}
                 >
                   {EXPENSE_CATEGORY_CONFIG[cat].icon} {formatCurrency(total)}

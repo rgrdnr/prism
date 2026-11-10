@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   createEventSchema,
   createTaskSchema,
@@ -9,6 +11,7 @@ import {
   createBirthdaySchema,
   createApiTokenSchema,
   createLayoutSchema,
+  updateLayoutSchema,
   hexColorSchema,
   uuidSchema,
   validateRequest,
@@ -289,24 +292,117 @@ describe('createLayoutSchema', () => {
     expect(createLayoutSchema.safeParse({ ...validLayout, slug: 'my-kitchen' }).success).toBe(true);
   });
 
-  // Calm mode (#691). Unknown keys are stripped, so a field missing from the
-  // schema would be silently dropped on every save.
-  it('keeps the screensaver mode and each widget\'s show-when-idle tick', () => {
+  // The idle background (#782) and calm mode's ticks (#691). Unknown keys are
+  // stripped, so a field missing from the schema would be silently dropped on
+  // every save.
+  it('keeps the idle background and each widget\'s show-when-idle tick', () => {
+    const idleBackground = {
+      day: 'dashboard', night: 'sky', switch: { by: 'sun', duskOffset: 30, dawnOffset: -60 },
+    } as const;
     const parsed = createLayoutSchema.parse({
       ...validLayout,
-      screensaverMode: 'calm',
+      idleBackground,
       widgets: [{ i: 'clock', x: 0, y: 0, w: 2, h: 2, showWhenIdle: false }],
     });
-    expect(parsed.screensaverMode).toBe('calm');
+    expect(parsed.idleBackground).toEqual(idleBackground);
     expect(parsed.widgets[0]!.showWhenIdle).toBe(false);
   });
 
-  it('leaves the mode unset when not given, so a new dashboard takes the column default', () => {
-    expect(createLayoutSchema.parse(validLayout).screensaverMode).toBeUndefined();
+  it('leaves the background unset when not given, so a new dashboard takes the column default', () => {
+    expect(createLayoutSchema.parse(validLayout).idleBackground).toBeUndefined();
   });
 
-  it('rejects an unknown screensaver mode', () => {
-    expect(createLayoutSchema.safeParse({ ...validLayout, screensaverMode: 'sleep' }).success).toBe(false);
+  it('rejects an unknown idle background', () => {
+    expect(createLayoutSchema.safeParse({ ...validLayout, idleBackground: { source: 'video' } }).success).toBe(false);
+    expect(createLayoutSchema.safeParse({ ...validLayout, idleBackground: 'calm' }).success).toBe(false);
+  });
+
+  // GHSA-mrhx-c7xc-m3w5: a list whose every item fails builds one issue per
+  // item, so a large enough body exhausts memory. With a limit on the list,
+  // an oversized one is refused whole before any item is checked.
+  it('refuses an oversized widget list with one issue, without checking each item', () => {
+    const widgets = Array.from({ length: 200_000 }, () => 'not a widget');
+    const result = createLayoutSchema.safeParse({ ...validLayout, widgets });
+    expect(result.success).toBe(false);
+    expect(result.error!.issues).toHaveLength(1);
+    expect(result.error!.issues[0]!.code).toBe('too_big');
+  });
+});
+// How a dashboard is drawn (#907).
+describe('layout view', () => {
+  const base = { name: 'Kitchen', widgets: [{ i: 'clock', x: 0, y: 0, w: 4, h: 4 }] };
+  it('accepts the grid, Today and the Calendar layout', () => {
+    expect(createLayoutSchema.parse({ ...base, view: 'today' }).view).toBe('today');
+    expect(createLayoutSchema.parse({ ...base, view: 'calendar' }).view).toBe('calendar');
+    expect(createLayoutSchema.parse({ ...base, view: 'grid' }).view).toBe('grid');
+  });
+  it('refuses any other view', () => {
+    expect(createLayoutSchema.safeParse({ ...base, view: 'freeform' }).success).toBe(false);
+  });
+  it('leaves the view unset when not given, so an update keeps it', () => {
+    expect(createLayoutSchema.parse(base).view).toBeUndefined();
+    expect(updateLayoutSchema.parse({ name: 'Kitchen' }).view).toBeUndefined();
+  });
+});
+
+
+/**
+ * Every list in a request schema needs a maximum, for the reason above: only a
+ * limited list is refused before its items are checked. Reads the source, so a
+ * new `z.array(...)` without `.max(...)` in its chain fails here.
+ */
+describe('request schemas limit every list', () => {
+  const root = path.resolve(__dirname, '../../..');
+
+  function sourceFiles(dir: string): string[] {
+    return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) return entry.name === '__tests__' ? [] : sourceFiles(full);
+      return /\.tsx?$/.test(entry.name) ? [full] : [];
+    });
+  }
+
+  /** The chain of calls after the `z.array(...)` starting at `start`, e.g. `.min(1).max(9).optional()`. */
+  function chainAfter(text: string, start: number): string {
+    let i = text.indexOf('(', start);
+    let depth = 0;
+    do {
+      if (text[i] === '(') depth++;
+      else if (text[i] === ')') depth--;
+      i++;
+    } while (depth > 0 && i < text.length);
+    const from = i;
+    // Consume `.name(...)` links, allowing whitespace and newlines between them.
+    for (;;) {
+      const link = /^\s*\.\w+\(/.exec(text.slice(i));
+      if (!link) break;
+      i += link[0].length;
+      depth = 1;
+      while (depth > 0 && i < text.length) {
+        if (text[i] === '(') depth++;
+        else if (text[i] === ')') depth--;
+        i++;
+      }
+    }
+    return text.slice(from, i);
+  }
+
+  it('finds no z.array without a .max', () => {
+    const unlimited: string[] = [];
+    let seen = 0;
+    for (const file of sourceFiles(root)) {
+      const text = fs.readFileSync(file, 'utf8');
+      if (!text.includes("from 'zod'")) continue;
+      for (const match of text.matchAll(/\bz\.array\(/g)) {
+        seen++;
+        if (!/\.max\(/.test(chainAfter(text, match.index!))) {
+          const line = text.slice(0, match.index).split('\n').length;
+          unlimited.push(`${path.relative(root, file)}:${line}`);
+        }
+      }
+    }
+    expect(seen).toBeGreaterThan(10);
+    expect(unlimited).toEqual([]);
   });
 });
 
@@ -322,5 +418,72 @@ describe('validateRequest', () => {
   it('returns error for invalid input', () => {
     const result = validateRequest(createTaskSchema, { title: '' });
     expect(result.success).toBe(false);
+  });
+});
+
+// An update writes only what the request sent. `.partial()` on a create schema
+// keeps each field's `.default()`, so an edit that never mentioned a field
+// wrote the create-time default over the stored value.
+describe('update schemas leave out what the request left out', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const all = require('../index') as Record<string, unknown>;
+  const updates = Object.entries(all).filter(([name]) => /^(update|patch)\w+Schema$/.test(name)) as [
+    string,
+    { safeParse: (v: unknown) => { success: boolean; data?: unknown } },
+  ][];
+
+  it('finds the update schemas', () => {
+    expect(updates.map(([n]) => n)).toEqual(
+      expect.arrayContaining(['updateLayoutSchema', 'updateChoreSchema', 'updateGoalSchema', 'updateBusRouteSchema', 'patchEventSchema']),
+    );
+  });
+
+  it.each(updates)('%s adds no field to an empty update', (_name, schema) => {
+    const parsed = schema.safeParse({});
+    if (parsed.success) expect(parsed.data).toEqual({});
+  });
+
+  it('keeps a layout the default, and its orientation, when only its text size changes', () => {
+    expect(all.updateLayoutSchema).toBeDefined();
+    const { updateLayoutSchema } = all as { updateLayoutSchema: { parse: (v: unknown) => unknown } };
+    expect(updateLayoutSchema.parse({ fontScale: 120 })).toEqual({ fontScale: 120 });
+  });
+
+  it('still fills the defaults in when creating', () => {
+    const { createLayoutSchema: create } = all as { createLayoutSchema: { parse: (v: unknown) => Record<string, unknown> } };
+    const made = create.parse({ name: 'Kitchen', widgets: [{ i: 'clock', x: 0, y: 0, w: 2, h: 2 }] });
+    expect(made.isDefault).toBe(false);
+    expect(made.orientation).toBe('landscape');
+  });
+
+  it('is what every PATCH route parses with', () => {
+    const api = path.join(__dirname, '..', '..', '..', 'app', 'api');
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name === 'route.ts' && /create\w+Schema\.partial\(\)/.test(fs.readFileSync(p, 'utf8'))) offenders.push(p);
+      }
+    };
+    walk(api);
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe('bus route walk time (#900)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { createBusRouteSchema, updateBusRouteSchema } = require('../index');
+  const base = { studentName: 'Robin', tripId: 't1', direction: 'AM', label: 'Morning bus', scheduledTime: '07:30' };
+
+  it('defaults to no walk on a new route, and takes whole minutes up to an hour', () => {
+    expect(createBusRouteSchema.parse(base).walkMinutes).toBe(0);
+    expect(createBusRouteSchema.parse({ ...base, walkMinutes: 8 }).walkMinutes).toBe(8);
+    expect(createBusRouteSchema.safeParse({ ...base, walkMinutes: 61 }).success).toBe(false);
+    expect(createBusRouteSchema.safeParse({ ...base, walkMinutes: 2.5 }).success).toBe(false);
+  });
+
+  it('leaves the walk time alone on an edit that does not mention it', () => {
+    expect(updateBusRouteSchema.parse({ label: 'School bus' })).not.toHaveProperty('walkMinutes');
   });
 });

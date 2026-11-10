@@ -19,6 +19,11 @@ concurrency:
 env:
   NODE_VERSION: '24'
 
+# Read-only token: no job here writes to the repo (CodeQL
+# actions/missing-workflow-permissions).
+permissions:
+  contents: read
+
 jobs:
   typecheck-lint:
     name: Type-check & lint
@@ -40,6 +45,12 @@ jobs:
 
       - name: Version sync (package.json ↔ CHANGELOG)
         run: bash scripts/check-version-sync.sh
+
+      # Home Assistant pulls the image of the version ha-app/config.yaml names,
+      # straight from master. A release PR stays red here until its tag has
+      # been built, so it can never merge ahead of its images (#757).
+      - name: HA add-on image is published
+        run: bash scripts/check-ha-image.sh
 
       # Syntax-check JS that doesn't flow through the TS/Next.js pipeline.
       # Caught nothing today, but had this been in place yesterday it would
@@ -166,7 +177,10 @@ jobs:
   e2e-modality:
     name: E2E modality suite (reverse-proxy)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Three suites in a row (modality, calendar geometry, screensaver); with
+    # retries of a flaky test they now run past 20 minutes and the job was
+    # cancelled mid-suite with nothing failing.
+    timeout-minutes: 35
     needs: playwright-image
 
     # Use the official Playwright container so Chromium is preinstalled.
@@ -244,7 +258,7 @@ jobs:
         run: npm run db:seed
 
       - name: Run e2e modality suite
-        run: npx playwright test e2e/reverse-proxy.spec.ts e2e/mobile-pwa-settings.spec.ts --reporter=list
+        run: npx playwright test e2e/reverse-proxy.spec.ts e2e/mobile-pwa-settings.spec.ts e2e/display-registry.spec.ts --reporter=list
 
       # Geometry, separately: every calendar bug in the month grid has been a
       # rendered box in the wrong place, which no unit test can see. The classes

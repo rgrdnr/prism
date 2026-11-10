@@ -6,11 +6,11 @@ import { maplibregl, MAP_LABEL_FONT } from '@/lib/map/maplibreSetup';
 import { busMapStyleUrl, type BusMapCamera, type BusMapStyle } from '@/lib/map/busMapOptions';
 import { CAMERA_TICK_MS, CLOSE_ZOOM, MANUAL_HOLD_MS, REFRAME_MS, cameraView, needsReframe } from '@/lib/map/busCamera';
 import {
-  CATCH_UP_MS, buildPath, extrapolate, freshness, headingDelta, isExtrapolating, isPathDone, metresAhead,
+  CATCH_UP_MS, buildPath, extrapolate, freshness, headingDelta, showsArrow, isExtrapolating, isPathDone, metresAhead,
   metresBetween, poseAt, shouldHold, speedBetween, type Motion, type Path, type Pose,
 } from '@/lib/map/busTween';
 import type { LiveTrack } from '@/lib/hooks/useBusLive';
-import { pointAlong, routeAhead, type LngLat } from '@/lib/map/routeAhead';
+import { alongUsualPath, pointAlong, routeAhead, type LngLat } from '@/lib/map/routeAhead';
 import { traceCoordinates } from '@/lib/map/busTrace';
 
 interface BusLiveMapProps {
@@ -46,22 +46,23 @@ function themeColor(token: string, fallback: string): string {
 }
 
 /**
- * The bus as a beacon: a dot in the theme colour, a soft cone showing which
- * way it is heading, and a slow pulse while it is live. The whole marker
- * turns with the heading, so the cone is drawn pointing up.
+ * The bus as a beacon: a dot in the theme colour, an arrow ahead of it while
+ * it moves, and a slow pulse while it is live. The whole marker turns with
+ * the heading, so the arrow is drawn pointing up.
  */
 function beaconHtml(color: string): string {
-  const cone = `bus-cone-${Math.random().toString(36).slice(2, 8)}`;
   const dot = 'position:absolute;left:50%;top:50%;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;box-sizing:border-box';
   return `
     <div data-pulse style="${dot};background:${color};opacity:0"></div>
-    <svg viewBox="0 0 56 56" width="56" height="56" style="position:absolute;inset:0">
-      <defs><linearGradient id="${cone}" x1="0" y1="1" x2="0" y2="0">
-        <stop offset="0" stop-color="${color}" stop-opacity="0.5"/><stop offset="1" stop-color="${color}" stop-opacity="0"/>
-      </linearGradient></defs>
-      <path d="M28 28 L17 4 A26 26 0 0 1 39 4 Z" fill="url(#${cone})"/>
+    <svg data-arrow viewBox="0 0 56 56" width="56" height="56" style="position:absolute;inset:0;opacity:0;transition:opacity 400ms">
+      <path d="M28 3 L37 15 L28 12 L19 15 Z" fill="${color}" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
     </svg>
     <div style="${dot};background:${color};border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4)"></div>`;
+}
+
+function setArrow(el: HTMLElement, shown: boolean) {
+  const arrow = el.querySelector<SVGElement>('[data-arrow]');
+  if (arrow) arrow.style.opacity = shown ? '1' : '0';
 }
 
 function busElement(): HTMLDivElement {
@@ -94,8 +95,9 @@ function stopFeatures(track: LiveTrack, formatTime: (iso: string) => string): Ge
   };
 }
 
+/** The road driven so far, along the usual path where the bus kept to it (alongUsualPath). */
 function traceFeature(track: LiveTrack, untilTs: number): GeoJSON.Feature {
-  const coordinates = traceCoordinates(track.fixes, track.stops, untilTs);
+  const coordinates = alongUsualPath(traceCoordinates(track.fixes, track.stops, untilTs), track.usualPath);
   return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } };
 }
 
@@ -163,8 +165,8 @@ function addLayers(map: maplibregl.Map) {
 /**
  * Today's trip on a map: the trace so far, each stop labelled with its actual
  * (passed) or projected (upcoming) time, and the bus where it most likely is
- * now (see busTween). Zoom is by the + and - buttons only: on a wall display a
- * drag or pinch belongs to the dashboard.
+ * now (see busTween). A drag pans and the + and - buttons zoom; a look around
+ * by hand holds the camera for a minute, then it frames the trip again.
  */
 export function BusLiveMap({
   track, formatTime, darkMode, reducedMotion, clockOffsetMs, mapStyle, camera, cover = NO_COVER,
@@ -193,6 +195,7 @@ export function BusLiveMap({
   const shownRef = useRef<Pose | null>(null);
   const heldSinceRef = useRef<number | null>(null);
   const pulseRef = useRef<Animation | null>(null);
+  const arrowRef = useRef(false);
 
   const setTrace = (untilTs: number) => {
     const source = mapRef.current?.getSource(TRACE) as maplibregl.GeoJSONSource | undefined;
@@ -205,7 +208,7 @@ export function BusLiveMap({
   /**
    * Aim the camera for the chosen mode. Bounds get room for the labels, which
    * hang below and to both sides of their dot. Skipped for a minute after a
-   * tap on the zoom buttons, so a zoom by hand is not undone at once. Unless
+   * tap on the zoom buttons or a drag, so a look around by hand is not undone at once. Unless
    * forced, it moves only when needsReframe says so, then glides there.
    */
   const aim = (animate: boolean, force = !animate) => {
@@ -439,7 +442,17 @@ export function BusLiveMap({
       style: styleUrl,
       center: [0, 0],
       zoom: 1,
-      interactive: false,
+      // Drag to pan, beside the zoom buttons. Every other gesture stays off:
+      // a wall screen gets brushed and leaned on, and a stray wheel or pinch
+      // should not move the map.
+      dragPan: true,
+      scrollZoom: false,
+      boxZoom: false,
+      dragRotate: false,
+      keyboard: false,
+      doubleClickZoom: false,
+      touchZoomRotate: false,
+      touchPitch: false,
       attributionControl: false,
     });
     map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
@@ -448,6 +461,9 @@ export function BusLiveMap({
     containerRef.current.querySelectorAll('.maplibregl-ctrl-zoom-in, .maplibregl-ctrl-zoom-out').forEach((button) => {
       button.addEventListener('click', () => { manualUntilRef.current = Date.now() + MANUAL_HOLD_MS; });
     });
+    // So is a drag: the camera waits rather than pulling the map back mid-look.
+    map.on('dragstart', () => { manualUntilRef.current = Date.now() + MANUAL_HOLD_MS; });
+    map.on('dragend', () => { manualUntilRef.current = Date.now() + MANUAL_HOLD_MS; });
     markerRef.current = new maplibregl.Marker({
       element: busElement(),
       rotationAlignment: 'map',
@@ -456,7 +472,7 @@ export function BusLiveMap({
     // Runs on the first style and again whenever the style is swapped (light
     // to dark, simple to detailed), which drops every layer we added.
     // Compact attribution opens on every style load and only folds on a drag,
-    // which this map never gets, so fold it whenever the map settles.
+    // which may never come, so fold it whenever the map settles.
     map.on('idle', () => {
       containerRef.current?.querySelector('.maplibregl-ctrl-attrib.maplibregl-compact-show')
         ?.classList.remove('maplibregl-compact-show');
@@ -506,6 +522,7 @@ export function BusLiveMap({
     const el = markerRef.current?.getElement();
     if (!el) return;
     el.innerHTML = beaconHtml(themeColor('primary', '#2563eb'));
+    setArrow(el, arrowRef.current);
     pulseRef.current?.cancel();
     pulseRef.current = reducedMotion ? null : el.querySelector('[data-pulse]')?.animate(
       [{ transform: 'scale(1)', opacity: 0.45 }, { transform: 'scale(3)', opacity: 0 }],
@@ -520,6 +537,8 @@ export function BusLiveMap({
     if (!el) return;
     const age = freshness(track.lastFixAt ? new Date(track.lastFixAt).getTime() : null, Date.now() + clockOffsetMs);
     el.style.opacity = age === 'live' ? '1' : '0.45';
+    arrowRef.current = showsArrow(track.fixes[track.fixes.length - 1], age);
+    setArrow(el, arrowRef.current);
     // A pulse says "live"; an old position should not claim it.
     if (age === 'live') pulseRef.current?.play();
     else pulseRef.current?.pause();

@@ -6,12 +6,11 @@ import { Suspense, lazy, useState, useCallback, useEffect, useMemo, useRef } fro
 const VISIBLE_WIDGETS_KEY = 'prism-visible-widgets';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
-import { DashboardLayout, DashboardHeader } from '@/components/layout/DashboardGrid';
+import { DashboardLayout, DashboardHeader, ScreenJobs } from '@/components/layout/DashboardGrid';
 import { LayoutGridEditor, SCREENSAVER_THEME } from '@/components/layout/LayoutGridEditor';
 import { useAuth, useFamily } from '@/components/providers';
 import { GRID_COLS } from '@/lib/constants/grid';
 import { useScreenSafeZones } from '@/lib/hooks/useScreenSafeZones';
-import { useOrientation } from '@/lib/hooks/useOrientation';
 import { useIsMobile } from '@/lib/hooks/useIsMobile';
 import { useAutoHideUI } from '@/lib/hooks/useAutoHideUI';
 import { useTaskLists } from '@/lib/hooks/useTaskLists';
@@ -37,16 +36,30 @@ const MealModal = lazy(() => import('@/app/meals/MealsView').then(m => ({ defaul
 import { WIDGET_REGISTRY } from '@/components/widgets/widgetRegistry';
 import { renderScreensaverPreview } from '@/components/screensaver/ScreensaverWidgetPreview';
 import { SCREENSAVER_WIDGET_CLASS } from '@/components/screensaver/Screensaver';
-import type { ScreensaverMode, WidgetConfig } from '@/lib/hooks/useLayouts';
+import type { WidgetConfig } from '@/lib/hooks/useLayouts';
+import { parseIdleBackground, withoutDashboard, PHOTOS, type IdleBackground } from '@/lib/idleBackground';
+import { TodayScene } from '@/components/today/TodayScene';
+import { PhoneToday } from '@/components/today/PhoneToday';
+import { isSimpleView } from '@/lib/newLook';
+import { TODAY_TEMPLATE } from '@/lib/constants/layoutTemplates';
+import type { ChoreLike } from '@/lib/today/quietLines';
+import { useEventSheet } from '@/components/calendar/useEventSheet';
+import { usePinFreeEveryday, useWhoDidIt } from './useEveryday';
 import { WidgetErrorBoundary } from '@/components/dashboard/WidgetErrorBoundary';
 import { WidgetExpandProvider, useWidgetExpand } from '@/components/dashboard/WidgetExpandProvider';
 import { useDashboardData } from './useDashboardData';
 import { useDashboardLayout, editLink } from './useDashboardLayout';
+import { useScreenSchedule } from './useScreenSchedule';
+import { useRemoveBirthday } from './useRemoveBirthday';
+import { useIdleSwitchCheck } from '@/components/layout/useIdleSwitchCheck';
 import { buildWidgetProps } from './useWidgetProps';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useConfirmDialog } from '@/lib/hooks/useConfirmDialog';
 import { useLocalCopy } from '@/lib/hooks/useLocalCopy';
-import { setActiveScreensaverMode, shownWhenIdle, useCalmIdle } from '@/components/screensaver/calmMode';
+import { setActiveIdleBackground, shownWhenIdle, useCalmIdle } from '@/components/screensaver/calmMode';
+import { useNightNow } from '@/components/screensaver/useIdleBackground';
+import { dimLevel, useIdleDimSetting } from '@/components/screensaver/idleDim';
+import { backdropFor, nightRule, type ScreenState } from '@/lib/throughTheDay';
 import { useScreensaverMotion } from '@/components/screensaver/useScreensaverMotion';
 
 class WidgetBoundary extends React.Component<
@@ -125,7 +138,19 @@ export function Dashboard({
     deleteChore: () => {},
   });
 
-  const layout = useDashboardLayout(data.layouts, slug);
+  // A named screen's time-of-day rules pick which dashboard this page shows (#692).
+  const editingRef = useRef(false);
+  const schedule = useScreenSchedule({
+    routeSlug: slug,
+    layouts: data.layouts.allLayouts,
+    loading: data.layouts.loading,
+    editing: editingRef,
+  });
+  const layout = useDashboardLayout(data.layouts, schedule.slug);
+  useEffect(() => { editingRef.current = layout.isEditing; }, [layout.isEditing]);
+  // Today is the built-in dashboard (#1151): it is edited like any other,
+  // through its widgets list instead of a grid.
+  const todayPage = isSimpleView(layout.activeLayout?.view);
 
   // Persist visible widget IDs to localStorage for next load's prioritized fetching
   useEffect(() => {
@@ -144,34 +169,29 @@ export function Dashboard({
     }
   }, [slug, data.layouts.loading, data.layouts.allLayouts.length, layout.activeLayout, router]);
 
-  // Detect portrait nav to offset grid height (nav covers bottom 80px + safe area)
-  const deviceOrientation = useOrientation();
   const isMobile = useIsMobile();
+  // The wall's dock replaces the rail and top bar (#922, #924).
+  const wallDock = !isMobile && !layout.isEditing;
   const { uiHidden } = useAutoHideUI();
-  const hasPortraitNav = !isMobile && deviceOrientation === 'portrait';
-  // Only reserve bottom space when nav is actually visible (not auto-hidden)
-  const bottomOffset = hasPortraitNav && !uiHidden ? 96 : 0;
+  // Nothing is fixed at the foot of the wall any more: the portrait bar is
+  // gone and the dock is drawn over the page (#924).
+  const bottomOffset = 0;
 
   // Grid control state shared between LayoutEditor toolbar and LayoutGridEditor
   const { allSizeNames } = useScreenSafeZones();
 
-  // Calm mode (#691): tell the Screensaver this dashboard is its own idle
-  // screen, and take it back when the dashboard goes, so other pages still get
-  // the ordinary screensaver. The phone layout has no calm idle state.
-  const screensaverMode = isMobile ? 'separate' : layout.activeLayout?.screensaverMode ?? 'separate';
+  // Tell the Screensaver what this dashboard shows behind it when idle (#782),
+  // which may be the dashboard itself (calm mode, #691). When the dashboard
+  // goes, other pages keep its photos or sky but have no dashboard to show.
+  // The phone layout has no calm idle state. Keyed by its JSON so a fresh copy
+  // of the same value is not a change.
+  const idleBackground = layout.activeLayout ? parseIdleBackground(layout.activeLayout.idleBackground) : PHOTOS;
+  const idleKey = JSON.stringify(isMobile ? withoutDashboard(idleBackground) : idleBackground);
   useEffect(() => {
-    setActiveScreensaverMode(screensaverMode);
-    return () => setActiveScreensaverMode('separate');
-  }, [screensaverMode]);
-  const setScreensaverMode = useCallback(async (mode: ScreensaverMode) => {
-    const active = layout.activeLayout;
-    if (!active) return;
-    try {
-      await data.layouts.saveLayout({ id: active.id, name: active.name, widgets: active.widgets, screensaverMode: mode });
-    } catch (err) {
-      console.error('Failed to save the screensaver mode:', err);
-    }
-  }, [layout.activeLayout, data.layouts]);
+    const bg = JSON.parse(idleKey) as IdleBackground;
+    setActiveIdleBackground(bg);
+    return () => setActiveIdleBackground(withoutDashboard(bg));
+  }, [idleKey]);
   const calmIdle = useCalmIdle() && !layout.isEditing;
   const fadedIds = useMemo(
     () => calmIdle ? new Set(layout.activeWidgets.filter(w => !shownWhenIdle(w)).map(w => w.i)) : undefined,
@@ -181,6 +201,19 @@ export function Dashboard({
   // board all night does not hold every edge on the same pixels (part 2).
   const { drift } = useScreensaverMotion();
   const idleDrift = calmIdle && drift;
+  // Through the day (#1152): the state the editor is showing, if any. The
+  // Through the day sheet's strip sets it: Active is the dashboard in use,
+  // Resting and Night are the idle screen by day and by night.
+  const previewState: ScreenState | null = !layout.isEditing ? null
+    : layout.editTab !== 'idle' ? 'active'
+      : layout.idleHalf === 'night' ? 'night' : 'resting';
+  const shownBackground = layout.isEditing ? layout.editingBackground : idleBackground;
+  // One night for the veil, the dim and the backdrop: the dashboard's rule.
+  const nightNow = useNightNow(nightRule(shownBackground));
+  const sceneNight = previewState === 'night' || (previewState !== 'resting' && nightNow);
+  const previewBackdrop = previewState ? backdropFor(shownBackground, previewState) : null;
+  const { level: dimRaw } = useIdleDimSetting();
+  const previewDim = previewState === 'night' && previewBackdrop === 'dashboard' ? dimLevel(dimRaw) : 0;
 
   // Orientation from active layout (DB), fallback to landscape
   // A choice made here holds until the active layout's orientation changes.
@@ -232,14 +265,18 @@ export function Dashboard({
   // Dashboard management callbacks for LayoutEditor
   // Only offered inside the layout editor, so the next dashboard opens in edit
   // mode too.
+  const { pick: pickDashboard } = schedule;
   const handleSwitchDashboard = useCallback((targetSlug: string) => {
+    pickDashboard(targetSlug);
     router.push(editLink(`/d/${targetSlug}`));
-  }, [router]);
+  }, [router, pickDashboard]);
 
-  const handleCreateDashboard = useCallback(async (name: string, startFrom: 'blank' | 'template' | 'copy') => {
+  const handleCreateDashboard = useCallback(async (name: string, startFrom: 'blank' | 'template' | 'copy' | 'today' | 'calendar') => {
     const { DEFAULT_TEMPLATE } = await import('@/lib/constants/layoutTemplates');
     let widgets: WidgetConfig[];
-    if (startFrom === 'copy' && layout.activeLayout) {
+    if (startFrom === 'today' || startFrom === 'calendar') {
+      widgets = TODAY_TEMPLATE.widgets;
+    } else if (startFrom === 'copy' && layout.activeLayout) {
       widgets = layout.activeLayout.widgets;
     } else if (startFrom === 'template') {
       widgets = DEFAULT_TEMPLATE.widgets;
@@ -248,7 +285,9 @@ export function Dashboard({
       widgets = [{ i: 'clock', x: 16, y: 16, w: 16, h: 16, visible: true }];
     }
     try {
-      const result = await data.layouts.saveLayout({ name, widgets, isDefault: false });
+      const result = await data.layouts.saveLayout({
+        name, widgets, isDefault: false, ...(startFrom === 'today' || startFrom === 'calendar' ? { view: startFrom } : {}),
+      });
       const saved = result as { slug?: string };
       if (saved?.slug) {
         router.push(`/d/${saved.slug}`);
@@ -281,12 +320,36 @@ export function Dashboard({
     }
   }, [layout.activeLayout, data.layouts, router]);
 
+  const removeBirthday = useRemoveBirthday(confirmAction);
+  // Tonight's times and crossed offsets for a day and night pair being edited.
+  const idleCheck = useIdleSwitchCheck(layout.isEditing ? layout.editingBackground : null);
+  // The editing bar sits at the foot of the screen (#1151), so the grid keeps
+  // the top and leaves the bar its room at the bottom.
+  const editorBarRoom = layout.isEditing ? 104 : 0;
+  // One event sheet for the calendar widget and Today's arc (#836).
+  const eventSheet = useEventSheet(() => { void data.calendar.refresh(); });
+  // Everyday jobs without a PIN (#835).
+  const pinFree = usePinFreeEveryday();
+  const whoDidIt = useWhoDidIt();
   const widgetProps = buildWidgetProps(data, requireAuth, {
     setShowAddTask, setShowAddMessage, setShowAddChore, setShowAddShopping,
   }, weatherLocation, confirmAction, {
     onEditTask: setEditingTask,
     onEditChore: setEditingChore,
     onEditMeal: setEditingMeal,
+    onRemoveBirthday: removeBirthday,
+    onOpenEvent: eventSheet.open,
+    onAddEvent: eventSheet.add,
+    everyday: {
+      pinFree,
+      whoDidIt: async (chore) => {
+        const m = await whoDidIt.ask(chore);
+        if (!m) return null;
+        const index = familyMembers.findIndex((x) => (x.id && x.id === m.id) || x.name === m.name);
+        const member = familyMembers[index];
+        return { index: member?.loginIndex ?? index };
+      },
+    },
   });
 
   const handleLogin = async () => {
@@ -359,213 +422,309 @@ export function Dashboard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
+  // Always this wrapper, styled or not, so a change of text size does not
+  // remount the dashboard under it.
   if (isMobile) {
+    // A Today or Calendar layout reads as a phone Today (#928); a grid
+    // layout keeps its cards.
+    const phoneToday = layout.activeLayout?.view === 'today' || layout.activeLayout?.view === 'calendar';
     return (
-      <AppShell
-        user={activeUser ? { id: activeUser.id, name: activeUser.name, avatarUrl: activeUser.avatarUrl, color: activeUser.color } : undefined}
-        onLogout={activeUser ? clearActiveUser : undefined}
-        onLogin={handleLogin}
-      >
-        <MobileDashboard data={data} />
-      </AppShell>
+      <div style={schedule.zoomStyle}>
+        <AppShell
+          user={activeUser ? { id: activeUser.id, name: activeUser.name, avatarUrl: activeUser.avatarUrl, color: activeUser.color } : undefined}
+          onLogout={activeUser ? clearActiveUser : undefined}
+          onLogin={handleLogin}
+          showWallpaper={phoneToday}
+          cardTools={!phoneToday}
+        >
+          {phoneToday ? (
+            <WidgetErrorBoundary>
+              <PhoneToday
+                parts={layout.activeWidgets}
+                events={data.calendar.events}
+                weather={data.weather.data ?? null}
+                onOpenEvent={eventSheet.open}
+                household={{
+                  chores: data.chores.chores as unknown as ChoreLike[],
+                  lists: data.shopping.lists as unknown as Array<{ id: string; name: string; items: Array<{ checked: boolean }> }>,
+                  birthdays: data.birthdays.birthdays,
+                  onTickChore: widgetProps.chores?.onChoreComplete as ((id: string) => void) | undefined,
+                  onAddShopping: widgetProps.shopping?.onAddClick as (() => void) | undefined,
+                }}
+              />
+              {eventSheet.element}
+              {whoDidIt.element}
+              {showAddShopping && (
+                <AddShoppingItemModal open={showAddShopping} onOpenChange={setShowAddShopping}
+                  onItemCreated={() => { data.shopping.refresh(); }} />
+              )}
+            </WidgetErrorBoundary>
+          ) : (
+            <MobileDashboard data={data} />
+          )}
+        </AppShell>
+      </div>
     );
   }
 
   return (
-    <AppShell
-      user={activeUser ? { id: activeUser.id, name: activeUser.name, avatarUrl: activeUser.avatarUrl, color: activeUser.color } : undefined}
-      onLogout={activeUser ? clearActiveUser : undefined}
-      onLogin={handleLogin}
-      showWallpaper
-    >
-      <DashboardLayout className={className}>
-        <DashboardHeader
-          onScreensaverClick={() => window.dispatchEvent(new Event('prism:screensaver'))}
-          onEditClick={activeUser && activeUser.role !== 'parent' ? undefined : layout.handleEditStart}
-        />
-
-        {layout.isEditing && (
-          <LayoutEditor
-            widgets={layout.editingWidgets}
-            onWidgetsChange={layout.setEditingWidgets}
-            onSave={layout.handleSave}
-            onSaveAs={layout.handleSaveAs}
-            onReset={layout.handleReset}
-            onCancel={() => { layout.setEditingScreensaver(false); layout.handleCancel(); }}
-            onDeleteLayout={data.layouts.deleteLayout}
-            layoutName={layout.activeLayout?.name}
-            savedLayouts={data.layouts.allLayouts.map(l => ({ id: l.id, name: l.name, widgets: l.widgets }))}
-            editingScreensaver={layout.editingScreensaver}
-            onToggleScreensaverEdit={() => layout.setEditingScreensaver(!layout.editingScreensaver)}
-            screensaverWidgets={layout.ssLayout}
-            onScreensaverWidgetToggle={layout.handleSsWidgetToggle}
-            onScreensaverSave={layout.handleSsSave}
-            onScreensaverSaveAs={layout.handleSsSaveAs}
-            onScreensaverReset={layout.handleSsReset}
-            onSelectScreensaverTemplate={layout.handleSelectSsTemplate}
-            screensaverPresets={layout.ssPresets}
-            onSelectScreensaverPreset={layout.handleSelectSsPreset}
-            onDeleteScreensaverPreset={layout.handleDeleteSsPreset}
-            screensaverMode={layout.activeLayout ? screensaverMode : undefined}
-            onScreensaverModeChange={setScreensaverMode}
-            screenGuideOrientation={screenGuideOrientation}
-            onScreenGuideOrientationChange={setScreenGuideOrientation}
-            enabledSizes={enabledSizes}
-            onToggleSize={handleToggleSize}
-            gridScrollY={gridScrollY}
-            gridVisibleRows={gridVisibleRows}
-            gridScrollX={gridScrollX}
-            gridVisibleCols={gridVisibleCols}
-            gridTotalRows={gridTotalRows}
-            gridTotalCols={gridTotalCols}
-            scrollToGridRef={scrollToGridRef}
-            allDashboards={data.layouts.allLayouts.map(l => ({ id: l.id, name: l.name, slug: l.slug, isDefault: l.isDefault }))}
-            currentDashboardId={layout.activeLayout?.id}
-            onSwitchDashboard={handleSwitchDashboard}
-            onCreateDashboard={handleCreateDashboard}
-            onRenameDashboard={handleRenameDashboard}
-            onDeleteDashboard={handleDeleteDashboard}
+    <div style={schedule.zoomStyle}>
+      <AppShell
+        user={activeUser ? { id: activeUser.id, name: activeUser.name, avatarUrl: activeUser.avatarUrl, color: activeUser.color } : undefined}
+        onLogout={activeUser ? clearActiveUser : undefined}
+        onLogin={handleLogin}
+        showWallpaper
+        // The editor keeps its own controls and the rail (#922).
+        dock={layout.isEditing ? undefined : 'wall'}
+        screenJobs={
+          <ScreenJobs
+            labelled
+            onScreensaverClick={() => window.dispatchEvent(new Event('prism:screensaver'))}
+            onEditClick={activeUser && activeUser.role !== 'parent' ? undefined : layout.handleEditStart}
           />
-        )}
+        }
+      >
+        <DashboardLayout className={className}>
+          {/* On the wall in landscape the dock's More has these (#922). */}
+          {/* While editing, the editing bar at the foot is the only control (#1151). */}
+          {!wallDock && !layout.isEditing && (
+            <DashboardHeader
+              onScreensaverClick={() => window.dispatchEvent(new Event('prism:screensaver'))}
+              onEditClick={activeUser && activeUser.role !== 'parent' ? undefined : layout.handleEditStart}
+            />
+          )}
 
-        {layout.editingScreensaver && layout.isEditing ? (
-          <LayoutGridEditor
-            layout={layout.ssLayout}
-            onLayoutChange={layout.handleSsLayoutChange}
-            isEditable
-            renderWidget={renderSsWidget}
-            margin={4}
-            headerOffset={100}
-            bottomOffset={bottomOffset}
-            minVisibleRows={8}
-            theme={SCREENSAVER_THEME}
-            previewFit="contain"
-            gridHelperText="Drag widgets to reposition &bull; Scroll to see more"
-            className="mx-4"
-            screenGuideOrientation={screenGuideOrientation}
-            enabledSizes={enabledSizes}
-            onScrollInfo={handleScrollInfo}
-            scrollToRef={scrollToGridRef}
-          />
-        ) : (
-          <WidgetErrorBoundary>
-            <WidgetExpandProvider renderMagnified={renderMagnifiedWidget}>
-              <LayoutGridEditor
-                layout={layout.activeWidgets}
-                onLayoutChange={layout.isEditing ? layout.setEditingWidgets : () => {}}
-                isEditable={layout.isEditing}
-                renderWidget={renderDashboardWidget}
-                fadedIds={fadedIds}
+          {layout.isEditing && (
+            <LayoutEditor
+              widgets={layout.editingWidgets}
+              onWidgetsChange={layout.setEditingWidgets}
+              onSave={layout.handleSave}
+              onSaveAs={layout.handleSaveAs}
+              onReset={layout.handleReset}
+              onCancel={layout.handleCancel}
+              onDeleteLayout={data.layouts.deleteLayout}
+              layoutName={layout.activeLayout?.name}
+              savedLayouts={data.layouts.allLayouts.map(l => ({ id: l.id, name: l.name, widgets: l.widgets }))}
+              editTab={layout.editTab}
+              onEditTabChange={layout.setEditTab}
+              dashboardDirty={layout.dashboardDirty}
+              idleDirty={layout.idleDirty}
+              editingScreensaver={layout.editingScreensaver}
+              screensaverWidgets={layout.ssLayout}
+              onScreensaverWidgetToggle={layout.handleSsWidgetToggle}
+              onScreensaverSaveAs={layout.handleSsSaveAs}
+              onScreensaverReset={layout.handleSsReset}
+              onSelectScreensaverTemplate={layout.handleSelectSsTemplate}
+              screensaverPresets={layout.ssPresets}
+              onSelectScreensaverPreset={layout.handleSelectSsPreset}
+              onDeleteScreensaverPreset={layout.handleDeleteSsPreset}
+              idleBackground={layout.activeLayout ? layout.editingBackground : undefined}
+              onIdleBackgroundChange={layout.setEditingBackground}
+              idleHalf={layout.idleHalf}
+              onIdleHalfChange={layout.setIdleHalf}
+              idleCheck={idleCheck}
+              screenGuideOrientation={screenGuideOrientation}
+              onScreenGuideOrientationChange={setScreenGuideOrientation}
+              enabledSizes={enabledSizes}
+              onToggleSize={handleToggleSize}
+              gridScrollY={gridScrollY}
+              gridVisibleRows={gridVisibleRows}
+              gridScrollX={gridScrollX}
+              gridVisibleCols={gridVisibleCols}
+              gridTotalRows={gridTotalRows}
+              gridTotalCols={gridTotalCols}
+              scrollToGridRef={scrollToGridRef}
+              allDashboards={data.layouts.allLayouts.map(l => ({ id: l.id, name: l.name, slug: l.slug, isDefault: l.isDefault, view: l.view }))}
+              currentDashboardId={layout.activeLayout?.id}
+              onSwitchDashboard={handleSwitchDashboard}
+              onCreateDashboard={handleCreateDashboard}
+              onRenameDashboard={handleRenameDashboard}
+              onDeleteDashboard={handleDeleteDashboard}
+              view={layout.activeLayout?.view}
+              onResetBuiltIn={() => layout.setEditingWidgets(TODAY_TEMPLATE.widgets.map((w) => ({ ...w })))}
+            />
+          )}
+
+          {layout.editingScreensaver ? (
+            <LayoutGridEditor
+              layout={layout.ssLayout}
+              onLayoutChange={layout.handleSsLayoutChange}
+              isEditable
+              renderWidget={renderSsWidget}
+              margin={4}
+              headerOffset={16}
+              bottomOffset={bottomOffset + editorBarRoom}
+              minVisibleRows={8}
+              theme={SCREENSAVER_THEME}
+              previewFit="contain"
+              hideEmptyByDefault
+              gridHelperText="Drag widgets to reposition &bull; Scroll to see more"
+              className="mx-4"
+              screenGuideOrientation={screenGuideOrientation}
+              enabledSizes={enabledSizes}
+              onScrollInfo={handleScrollInfo}
+              scrollToRef={scrollToGridRef}
+            />
+          ) : todayPage ? (
+            // Today (#907): one scene over the photo instead of the grid. While
+            // editing it stays the scene, so the Widgets sheet's changes show
+            // on it as they are made (#1151).
+            <WidgetErrorBoundary>
+              <TodayScene
+                parts={layout.activeWidgets}
+                weather={data.weather.data ?? null}
+                events={data.calendar.events}
+                onOpenEvent={eventSheet.open}
+                idle={calmIdle || previewState === 'resting' || previewState === 'night'}
+                night={sceneNight}
                 drift={idleDrift}
-                idleToggles={layout.isEditing && screensaverMode === 'calm'}
-                widgetConstraints={dashboardConstraints}
-                margin={8}
-                headerOffset={layout.isEditing ? 140 : uiHidden ? 0 : 56}
-                bottomOffset={bottomOffset}
-                screenGuideOrientation={screenGuideOrientation}
-                enabledSizes={enabledSizes}
-                onScrollInfo={handleScrollInfo}
-                scrollToRef={scrollToGridRef}
+                kind={layout.activeLayout?.view === 'calendar' ? 'calendar' : 'today'}
+                household={{
+                  chores: data.chores.chores as unknown as ChoreLike[],
+                  lists: data.shopping.lists as unknown as Array<{ id: string; name: string; items: Array<{ checked: boolean }> }>,
+                  birthdays: data.birthdays.birthdays,
+                  onTickChore: widgetProps.chores?.onChoreComplete as ((id: string) => void) | undefined,
+                  onAddShopping: widgetProps.shopping?.onAddClick as (() => void) | undefined,
+                }}
+                topOffset={uiHidden || wallDock || layout.isEditing ? 0 : 56}
               />
-            </WidgetExpandProvider>
-          </WidgetErrorBoundary>
-        )}
+            </WidgetErrorBoundary>
+          ) : (
+            <WidgetErrorBoundary>
+              <WidgetExpandProvider renderMagnified={renderMagnifiedWidget}>
+                <LayoutGridEditor
+                  layout={layout.activeWidgets}
+                  onLayoutChange={layout.isEditing ? layout.setEditingWidgets : () => {}}
+                  isEditable={layout.isEditing}
+                  renderWidget={renderDashboardWidget}
+                  fadedIds={fadedIds}
+                  idleClear={calmIdle}
+                  hideEmptyByDefault={calmIdle}
+                  drift={idleDrift}
+                  morph
+                  // Stays / Fades belongs to the Idle screen tab, on a dashboard that is its own idle screen.
+                  idleToggles={layout.isEditing && layout.editTab === 'idle' && !isMobile}
+                  widgetConstraints={dashboardConstraints}
+                  margin={8}
+                  headerOffset={layout.isEditing ? 16 : uiHidden || wallDock ? 0 : 56}
+                  bottomOffset={bottomOffset + editorBarRoom}
+                  screenGuideOrientation={screenGuideOrientation}
+                  enabledSizes={enabledSizes}
+                  onScrollInfo={handleScrollInfo}
+                  scrollToRef={scrollToGridRef}
+                />
+              </WidgetExpandProvider>
+            </WidgetErrorBoundary>
+          )}
 
-        {showAddTask && (
-          <AddTaskModal open={showAddTask} onOpenChange={setShowAddTask}
-            onTaskCreated={() => { data.tasks.refresh(); }} />
-        )}
-        {showAddMessage && (
-          <AddMessageModal open={showAddMessage} onOpenChange={setShowAddMessage}
-            currentUser={activeUser ? { id: activeUser.id, name: activeUser.name, color: activeUser.color, avatarUrl: activeUser.avatarUrl } : undefined}
-            onMessageCreated={() => { data.messages.refresh(); }} />
-        )}
-        {showAddChore && (
-          <AddChoreModal open={showAddChore} onOpenChange={setShowAddChore}
-            onChoreCreated={() => { data.chores.refresh(); }} />
-        )}
-        {showAddShopping && (
-          <AddShoppingItemModal open={showAddShopping} onOpenChange={setShowAddShopping}
-            onItemCreated={() => { data.shopping.refresh(); }} />
-        )}
-
-        {editingChore && (
-          <Suspense fallback={null}>
-            <ChoreModal
-              chore={editingChore}
-              familyMembers={familyMembers}
-              onClose={() => setEditingChore(null)}
-              onSave={async (updated) => {
-                await saveEditedChore(editingChore.id, updated);
-              }}
+          {/* The editor's Night preview: the dim over this dashboard, or the
+              black of a screen set to go off (#1152). Under the editing bar. */}
+          {previewState === 'night' && (previewBackdrop === 'off' || previewDim > 0) && (
+            <div
+              aria-hidden
+              className="pointer-events-none fixed inset-0 z-150 bg-black"
+              style={{ opacity: previewBackdrop === 'off' ? 1 : previewDim }}
+              data-preview-night={previewBackdrop === 'off' ? 'off' : 'dim'}
             />
-          </Suspense>
-        )}
+          )}
+          {eventSheet.element}
+          {whoDidIt.element}
+          {showAddTask && (
+            <AddTaskModal open={showAddTask} onOpenChange={setShowAddTask}
+              onTaskCreated={() => { data.tasks.refresh(); }} />
+          )}
+          {showAddMessage && (
+            <AddMessageModal open={showAddMessage} onOpenChange={setShowAddMessage}
+              currentUser={activeUser ? { id: activeUser.id, name: activeUser.name, color: activeUser.color, avatarUrl: activeUser.avatarUrl } : undefined}
+              onMessageCreated={() => { data.messages.refresh(); }} />
+          )}
+          {showAddChore && (
+            <AddChoreModal open={showAddChore} onOpenChange={setShowAddChore}
+              onChoreCreated={() => { data.chores.refresh(); }} />
+          )}
+          {showAddShopping && (
+            <AddShoppingItemModal open={showAddShopping} onOpenChange={setShowAddShopping}
+              onItemCreated={() => { data.shopping.refresh(); }} />
+          )}
 
-        {editingTask && (
-          <Suspense fallback={null}>
-            <TaskModal
-              task={editingTask}
-              familyMembers={familyMembers}
-              taskLists={taskLists}
-              onClose={() => setEditingTask(null)}
-              onSave={async (updated) => {
-                try {
-                  const res = await fetch(`/api/tasks/${editingTask.id}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      title: updated.title,
-                      priority: updated.priority,
-                      category: updated.category,
-                      assignedTo: updated.assignedTo?.id,
-                      dueDate: updated.dueDate,
-                      dueTime: updated.dueTime,
-                      completed: updated.completed,
-                      listId: updated.listId,
-                    }),
-                  });
-                  if (!res.ok) throw new Error('Failed to update task');
-                  data.tasks.refresh();
-                } catch (err) {
-                  toast({ title: err instanceof Error ? err.message : 'Failed to update task', variant: 'destructive' });
-                } finally {
-                  setEditingTask(null);
-                }
-              }}
-            />
-          </Suspense>
-        )}
+          {editingChore && (
+            <Suspense fallback={null}>
+              <ChoreModal
+                chore={editingChore}
+                familyMembers={familyMembers}
+                onClose={() => setEditingChore(null)}
+                onSave={async (updated) => {
+                  await saveEditedChore(editingChore.id, updated);
+                }}
+              />
+            </Suspense>
+          )}
 
-        {editingMeal && (
-          <Suspense fallback={null}>
-            <MealModal
-              meal={editingMeal}
-              weekOf={editingMeal.weekOf}
-              dayOptions={['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const}
-              recipes={recipes}
-              onClose={() => setEditingMeal(null)}
-              onSave={async (updates) => {
-                try {
-                  const res = await fetch(`/api/meals/${editingMeal.id}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(updates),
-                  });
-                  if (!res.ok) throw new Error('Failed to update meal');
-                  data.meals.refresh();
-                } catch (err) {
-                  toast({ title: err instanceof Error ? err.message : 'Failed to update meal', variant: 'destructive' });
-                } finally {
-                  setEditingMeal(null);
-                }
-              }}
-            />
-          </Suspense>
-        )}
-      </DashboardLayout>
-      <ConfirmDialog {...confirmDialogProps} />
-    </AppShell>
+          {editingTask && (
+            <Suspense fallback={null}>
+              <TaskModal
+                task={editingTask}
+                familyMembers={familyMembers}
+                taskLists={taskLists}
+                onClose={() => setEditingTask(null)}
+                onSave={async (updated) => {
+                  try {
+                    const res = await fetch(`/api/tasks/${editingTask.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        title: updated.title,
+                        priority: updated.priority,
+                        category: updated.category,
+                        assignedTo: updated.assignedTo?.id,
+                        dueDate: updated.dueDate,
+                        dueTime: updated.dueTime,
+                        completed: updated.completed,
+                        listId: updated.listId,
+                      }),
+                    });
+                    if (!res.ok) throw new Error('Failed to update task');
+                    data.tasks.refresh();
+                  } catch (err) {
+                    toast({ title: err instanceof Error ? err.message : 'Failed to update task', variant: 'destructive' });
+                  } finally {
+                    setEditingTask(null);
+                  }
+                }}
+              />
+            </Suspense>
+          )}
+
+          {editingMeal && (
+            <Suspense fallback={null}>
+              <MealModal
+                meal={editingMeal}
+                weekOf={editingMeal.weekOf}
+                dayOptions={['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const}
+                recipes={recipes}
+                onClose={() => setEditingMeal(null)}
+                onSave={async (updates) => {
+                  try {
+                    const res = await fetch(`/api/meals/${editingMeal.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(updates),
+                    });
+                    if (!res.ok) throw new Error('Failed to update meal');
+                    data.meals.refresh();
+                  } catch (err) {
+                    toast({ title: err instanceof Error ? err.message : 'Failed to update meal', variant: 'destructive' });
+                  } finally {
+                    setEditingMeal(null);
+                  }
+                }}
+              />
+            </Suspense>
+          )}
+        </DashboardLayout>
+        <ConfirmDialog {...confirmDialogProps} />
+      </AppShell>
+    </div>
   );
 }
 

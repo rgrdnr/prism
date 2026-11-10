@@ -73,11 +73,41 @@ export interface CssGridDisplayProps {
    */
   fadedIds?: ReadonlySet<string>;
   /**
+   * The display is on its calm idle screen: the glass cards that stay turn
+   * clear, so the clock and weather sit straight on the photo, with light
+   * text and a soft shadow (.idle-clear in globals.css).
+   */
+  idleClear?: boolean;
+  /**
    * Slow burn-in drift, applied to each whole cell. On the cell, not inside
    * it: the cell clips its content, so a card drifting inside it lost an edge
    * of its outline to the clip on whichever side it had moved towards.
    */
   drift?: boolean;
+  /**
+   * When a screen's schedule changes the dashboard (#692), widgets on both
+   * slide and resize to their new places and the rest fade. Only the
+   * dashboard's own grid: names must be unique on the page, and a separate
+   * screensaver shows the same widgets.
+   */
+  morph?: boolean;
+  /**
+   * Hide widgets with nothing to show unless they are set otherwise (#738):
+   * true for the screensaver and a calm dashboard's idle screen. A hidden
+   * widget keeps its place, like a faded one, so nothing else moves.
+   */
+  hideEmptyByDefault?: boolean;
+  /** Which widgets are showing their empty state, as it changes. */
+  onEmptyChange?: (emptyIds: ReadonlySet<string>) => void;
+  /**
+   * Fill the widgets in a few at a time (#1083): every card's frame at once,
+   * then their contents two by two, top-left first, each pair in its own short
+   * task, so a tap gets through while the dashboard builds. The live
+   * dashboard only; the editor and screensaver render in one go.
+   */
+  staged?: boolean;
+  /** Leave out "Hide first" widgets on a small screen and close up (#803). Live dashboard only. */
+  smallScreenDrop?: boolean;
   className?: string;
 }
 
@@ -101,7 +131,16 @@ export interface LayoutGridEditorProps {
   /** Display mode only; see CssGridDisplayProps. */
   fadedIds?: ReadonlySet<string>;
   /** Display mode only; see CssGridDisplayProps. */
+  idleClear?: boolean;
+  /**
+   * See CssGridDisplayProps. In edit mode it is the default the Hide when
+   * empty switch shows for a widget that has not been set.
+   */
+  hideEmptyByDefault?: boolean;
+  /** Display mode only; see CssGridDisplayProps. */
   drift?: boolean;
+  /** Display mode only; see CssGridDisplayProps. */
+  morph?: boolean;
   /** Edit mode only; see CssGridEditorProps. */
   idleToggles?: boolean;
   className?: string;

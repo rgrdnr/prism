@@ -92,6 +92,38 @@ describe('GET /api/settings', () => {
     expect(body.settings.theme).toBe('dark');
     expect(body.settings.language).toBe('en');
   });
+
+  // #809: the wall, children and any other caller who may not change
+  // settings get only what the screens need.
+  describe('who may read what (#809)', () => {
+    const rows = [
+      { key: 'theme', value: 'dark' },
+      { key: 'credentials.google', value: { clientId: 'enc', clientSecret: 'enc' } },
+      { key: 'wifiConfig', value: { ssid: 'Example', password: 'enc' } },
+      { key: 'telemetry.instanceId', value: 'abc' },
+      { key: 'busGmailLabel', value: 'Bus' },
+      { key: 'mapboxToken', value: 'token' },
+      { key: 'displayUserId', value: 'u1' },
+      { key: 'security', value: { requirePinForEveryChange: false, pinLength: 4 } },
+    ];
+
+    it('a caller who may not change settings gets no credentials, Wi-Fi, ids or tokens, and only the PIN switch of security', async () => {
+      mockGetDisplayAuth.mockResolvedValue({ userId: 'display', role: 'guest' });
+      mockRequireRole.mockReturnValue(NextResponse.json({ error: 'Forbidden' }, { status: 403 }));
+      mockFrom.mockResolvedValue(rows);
+      const body = await (await GET()).json();
+      expect(Object.keys(body.settings).sort()).toEqual(['security', 'theme']);
+      expect(body.settings.security).toEqual({ requirePinForEveryChange: false });
+    });
+
+    it('a parent still reads every setting', async () => {
+      mockRequireRole.mockReturnValue(null);
+      mockFrom.mockResolvedValue(rows);
+      const body = await (await GET()).json();
+      expect(Object.keys(body.settings)).toHaveLength(rows.length);
+      expect(body.settings.security).toEqual({ requirePinForEveryChange: false, pinLength: 4 });
+    });
+  });
 });
 
 describe('PATCH /api/settings', () => {
@@ -212,6 +244,7 @@ describe('PATCH /api/settings', () => {
       ['location', { lat: 41.9, lon: -87.6, displayName: 'Springfield' }],
       ['location', null],
       ['telemetry.enabled', false],
+      ['firstLook', 'night'], // the wizard's Pick a look step (#808)
     ])('allows writing %s before setup is complete', async (key, value) => {
       mockIsSetupComplete.mockResolvedValue(false);
       mockWhere.mockResolvedValueOnce([]);
@@ -237,6 +270,7 @@ describe('PATCH /api/settings', () => {
       ['location', 'Springfield'],
       ['location', { lat: 200, lon: 0, displayName: 'x' }],
       ['telemetry.enabled', 'false'],
+      ['firstLook', 'neon'],
     ])('rejects a malformed %s on the setup path', async (key, value) => {
       mockIsSetupComplete.mockResolvedValue(false);
 
@@ -261,6 +295,30 @@ describe('PATCH /api/settings', () => {
     it.each(['2', 1, 'monday'])('rejects the week start %p', async (value) => {
       const res = await PATCH(makePatchRequest({ key: 'weekStartsOn', value }));
       expect(res.status).toBe(400);
+    });
+
+    it.each(['true', 1, null])('rejects the aurora switch %p', async (value) => {
+      const res = await PATCH(makePatchRequest({ key: 'nightSkyAurora', value }));
+      expect(res.status).toBe(400);
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
+
+    // Placed in the first-paint script by the root layout, so only the three
+    // known words may be stored (#808).
+    it.each(['sepia', "dark';alert(1)//", 1, null])('rejects the default mode %p', async (value) => {
+      const res = await PATCH(makePatchRequest({ key: 'defaultThemeMode', value }));
+      expect(res.status).toBe(400);
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
+
+    it.each(['light', 'dark', 'system'])('accepts the default mode %s', async (value) => {
+      const res = await PATCH(makePatchRequest({ key: 'defaultThemeMode', value }));
+      expect(res.status).toBe(200);
+    });
+
+    it('accepts the aurora switch on', async () => {
+      const res = await PATCH(makePatchRequest({ key: 'nightSkyAurora', value: true }));
+      expect(res.status).toBe(200);
     });
   });
 });

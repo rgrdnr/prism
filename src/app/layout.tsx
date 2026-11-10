@@ -43,7 +43,7 @@ import type { Metadata, Viewport } from 'next';
 
 // Inter font from Google Fonts (loaded by Next.js for performance)
 // Next.js automatically optimizes font loading to prevent layout shift
-import { Inter, Fraunces, Nunito, JetBrains_Mono } from 'next/font/google';
+import { Inter, Literata, Nunito, JetBrains_Mono, Dancing_Script } from 'next/font/google';
 
 // Providers (theme, auth, etc.)
 import { Providers } from '@/components/providers';
@@ -58,8 +58,10 @@ import { DemoBanner } from '@/components/layout/DemoBanner';
 
 // Toast notifications
 import { Toaster } from '@/components/ui/toaster';
-import { getServerTheme } from '@/lib/themes/serverTheme';
+import { getServerTheme, getServerDefaultMode, firstPaintScript } from '@/lib/themes/serverTheme';
 import { themeCss } from '@/lib/themes/applyTheme';
+import { PERF_CLASS_SCRIPT } from '@/lib/perfLevel';
+import { SCREEN_HEIGHT_SCRIPT } from '@/lib/screenHeight';
 
 
 /**
@@ -92,8 +94,11 @@ const inter = Inter({
  * theme actually selects, so the cost of the three unused ones is disk in the
  * container, not bytes on a display.
  */
-const fraunces = Fraunces({
+// Literata: a book face drawn for an e-reader. Its optical-size axis tightens
+// the letters at the clock's size and opens them at title size (#800).
+const literata = Literata({
   subsets: ['latin'],
+  axes: ['opsz'],
   variable: '--font-serif',
   display: 'swap',
 });
@@ -101,6 +106,13 @@ const fraunces = Fraunces({
 const nunito = Nunito({
   subsets: ['latin'],
   variable: '--font-rounded',
+  display: 'swap',
+});
+
+// Dancing Script: the next event's title on Simple, written out (TodayList).
+const dancingScript = Dancing_Script({
+  subsets: ['latin'],
+  variable: '--font-script',
   display: 'swap',
 });
 
@@ -168,6 +180,16 @@ export const metadata: Metadata = {
 
   // PWA manifest
   manifest: '/manifest.json',
+
+  // iPhone home-screen app (#1041): with no status bar style, iOS draws the
+  // page under the status bar (and blurs it there) yet reports a top inset of
+  // 0, so env(safe-area-inset-top) padding does nothing. Translucent makes iOS
+  // report the real inset, and the headers' safe-area padding clears it.
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Prism',
+  },
 
   // Icons configuration
   icons: {
@@ -263,11 +285,16 @@ export default async function RootLayout({
   // already the right palette. A wall display reloads on its own; a flash of
   // the default colours on every reload is the most visible thing about
   // theming, and it reads as a fault.
-  const theme = await getServerTheme();
+  const [theme, defaultMode] = await Promise.all([getServerTheme(), getServerDefaultMode()]);
 
   return (
     <html
       lang="en"
+      // The font variables sit on <html>, not <body>: the role variables
+      // (--font-sans, --font-display, a theme's --theme-font) are declared on
+      // :root and resolve there, so a face defined lower down never reached
+      // them and the Serif role drew Tailwind's default serif instead (#800).
+      className={`${inter.variable} ${literata.variable} ${nunito.variable} ${jetbrainsMono.variable} ${dancingScript.variable}`}
       // Suppress hydration warnings from browser extensions
       // that might modify the HTML (password managers, etc.)
       suppressHydrationWarning
@@ -297,10 +324,9 @@ export default async function RootLayout({
           the thin clients that can least afford the frame, and it happened on
           every page load, not just the first.
 
-          Only an explicitly stored value is read here. When nothing is stored
-          the hook auto-detects from device memory and core count and persists
-          the result, which happens once per display; duplicating that
-          heuristic in here would just let the two drift apart.
+          The level comes from two keys, the chosen mode and what Auto
+          measured. PERF_CLASS_SCRIPT reads both, and is tested against the
+          hook's own reading of them so the two cannot drift apart.
 
           The try/catch matters: getItem throws outright when a browser is set
           to block site data, and an exception here would take the dark class
@@ -308,7 +334,7 @@ export default async function RootLayout({
         */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('prism-theme')||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.classList.add('dark');if(localStorage.getItem('prism-perf-mode')==='true')document.documentElement.classList.add('performance-mode')}catch(e){}})()`,
+            __html: `${firstPaintScript(defaultMode, PERF_CLASS_SCRIPT)};${SCREEN_HEIGHT_SCRIPT}`,
           }}
         />
       </head>
@@ -321,7 +347,7 @@ export default async function RootLayout({
         - antialiased: Smooth font rendering
         - bg-background: Background color from theme
         - text-foreground: Text color from theme
-        - min-h-screen: At least full viewport height
+        - min-h-fill: At least the screen's height, as the page measured it
         - overflow-hidden: Prevent scrolling (dashboard fills screen)
 
         NOTE: overflow-hidden is specific to our kiosk-style dashboard.
@@ -329,15 +355,11 @@ export default async function RootLayout({
       */}
       <body
         className={`
-          ${inter.variable}
-          ${fraunces.variable}
-          ${nunito.variable}
-          ${jetbrainsMono.variable}
           font-sans
           antialiased
           bg-background
           text-foreground
-          min-h-screen
+          min-h-fill
           md:overflow-hidden
         `}
       >
@@ -346,7 +368,7 @@ export default async function RootLayout({
           Wrap children with application providers (theme, auth, etc.)
         */}
         <ErrorBoundary>
-          <Providers>
+          <Providers defaultMode={defaultMode}>
             <DemoBanner />
             {children}
             <LazyOverlays />

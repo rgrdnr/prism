@@ -76,7 +76,7 @@ export const WeeklyPlannerWidget = React.memo(function WeeklyPlannerWidget({
                   </h4>
                   <span className="text-xs text-muted-foreground">{format(bucket.date, 'MMM d')}</span>
                   {isToday && (
-                    <span className="text-[10px] px-1.5 py-0 rounded-full bg-primary text-primary-foreground">Today</span>
+                    <span className="text-3xs px-1.5 py-0 rounded-full bg-primary text-primary-foreground">Today</span>
                   )}
                 </div>
                 {isEmpty ? (

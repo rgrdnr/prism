@@ -14,7 +14,7 @@
  */
 
 import * as React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import type { Chore } from '@/types';
 import type { Task } from '@/types';
 import type { ShoppingList } from '@/types';
@@ -83,6 +83,24 @@ describe('ChoresWidget', () => {
     expect(screen.getByTestId('widget-empty')).toBeTruthy();
   });
 
+  // #1109: a chore or reminder with a time shows it, and Late once its day has gone.
+  // #996: a chore for a pet shows the pet's name.
+  it('shows the pet a chore is for', () => {
+    const { container } = render(<ChoresWidget chores={[{ ...mockChore, pet: { id: 'p1', name: 'Biscuit', color: '#F59E0B' } }]} />);
+    expect(container.querySelector('[data-chore-pet="Biscuit"]')?.textContent).toBe('Biscuit');
+  });
+
+  it('marks a timed chore Late once its day has gone, and shows the time', () => {
+    const { container } = render(<ChoresWidget chores={[
+      { ...mockChore, id: 'r1', title: 'Allergy tablet', kind: 'reminder', nextDue: '2020-01-01', nextDueTime: '19:00' },
+      { ...mockChore, id: 'r2', title: 'Feed the cat', kind: 'reminder', nextDue: '2099-01-01', nextDueTime: '07:30' },
+    ]} />);
+    const late = container.querySelectorAll('[data-chore-late]');
+    expect(late).toHaveLength(1);
+    expect(late[0]!.textContent).toBe('Late · 7:00 PM');
+    expect(screen.getByText('7:30 AM')).toBeTruthy();
+  });
+
   it('shows loading state', () => {
     render(<ChoresWidget loading={true} />);
     // WidgetContainer handles loading display
@@ -129,6 +147,44 @@ describe('TasksWidget', () => {
     const done: Task = { ...mockTask, id: 't2', title: 'Done task', completed: true };
     render(<TasksWidget tasks={[mockTask, done]} showCompleted={true} />);
     expect(screen.getByText('Done task')).toBeTruthy();
+  });
+
+  it('crosses a task off with a tap on the row, and edits only from the pencil', () => {
+    const onTaskToggle = jest.fn();
+    const onTaskClick = jest.fn();
+    render(<TasksWidget tasks={[mockTask]} onTaskToggle={onTaskToggle} onTaskClick={onTaskClick} />);
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+
+    fireEvent.click(screen.getByText('Buy milk'));
+    expect(onTaskToggle).toHaveBeenCalledWith('t1', true);
+    expect(onTaskClick).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit task' }));
+    expect(onTaskClick).toHaveBeenCalledTimes(1);
+    expect(onTaskToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('a done task is crossed out', () => {
+    const done: Task = { ...mockTask, completed: true };
+    render(<TasksWidget tasks={[done]} showCompleted />);
+    expect(screen.getByText('Buy milk').className).toContain('line-through');
+  });
+});
+
+describe('ChoresWidget tap to complete', () => {
+  it('completes a chore with a tap on the row, and edits only from the pencil', () => {
+    const onChoreComplete = jest.fn();
+    const onChoreClick = jest.fn();
+    render(<ChoresWidget chores={[mockChore]} onChoreComplete={onChoreComplete} onChoreClick={onChoreClick} />);
+    expect(screen.queryByRole('button', { name: 'Mark as complete' })).toBeNull();
+
+    fireEvent.click(screen.getByText('Vacuum'));
+    expect(onChoreComplete).toHaveBeenCalledWith('c1');
+    expect(onChoreClick).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit chore' }));
+    expect(onChoreClick).toHaveBeenCalledTimes(1);
+    expect(onChoreComplete).toHaveBeenCalledTimes(1);
   });
 });
 

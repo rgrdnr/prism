@@ -28,7 +28,7 @@ export function MiniMonth({ month, today }: { month: Date; today: Date }) {
       <div className="text-center text-sm font-semibold mb-1">{format(month, 'MMMM yyyy')}</div>
       <div className="grid grid-cols-7 gap-y-0.5">
         {DAYS_SINGLE_ARRAY.map((label, i) => (
-          <div key={i} className="text-center text-[10px] font-medium text-muted-foreground">
+          <div key={i} className="text-center text-3xs font-medium text-muted-foreground">
             {label}
           </div>
         ))}

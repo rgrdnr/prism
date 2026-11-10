@@ -40,8 +40,10 @@ type DashData = ReturnType<typeof useDashboardData>;
 const LayoutCtx = createContext<MobileLayoutMode>('rows');
 export const MobileLayoutProvider = LayoutCtx.Provider;
 
-function CardShell({ href, icon, title, count, children }: {
+function CardShell({ href, onOpen, icon, title, count, children }: {
   href?: string;
+  /** Opens something in place (a full widget) instead of following a link. */
+  onOpen?: () => void;
   icon: React.ReactNode;
   title: string;
   count?: number;
@@ -58,7 +60,7 @@ function CardShell({ href, icon, title, count, children }: {
             <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full shrink-0">{count}</span>
           )}
         </div>
-        {href && <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+        {(href || onOpen) && <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
       </div>
       {!compact && children}
     </div>
@@ -66,6 +68,9 @@ function CardShell({ href, icon, title, count, children }: {
 
   if (href) {
     return <Link href={href} className="block">{inner}</Link>;
+  }
+  if (onOpen) {
+    return <button type="button" onClick={onOpen} className="block w-full text-left">{inner}</button>;
   }
   return inner;
 }
@@ -238,7 +243,7 @@ export function MessagesCard({ data }: { data: DashData['messages'] }) {
   );
 }
 
-export function BirthdaysCard({ data }: { data: DashData['birthdays'] }) {
+export function BirthdaysCard({ data, onOpen }: { data: DashData['birthdays']; onOpen?: () => void }) {
   const upcoming = useMemo(() => {
     if (!data.birthdays) return [];
     return data.birthdays.slice(0, 2);
@@ -247,7 +252,7 @@ export function BirthdaysCard({ data }: { data: DashData['birthdays'] }) {
   if (upcoming.length === 0) return null;
 
   return (
-    <CardShell icon={<Cake className="h-4 w-4 text-pink-500" />} title="Birthdays" count={upcoming.length}>
+    <CardShell onOpen={onOpen} icon={<Cake className="h-4 w-4 text-pink-500" />} title="Birthdays" count={upcoming.length}>
       <div className="space-y-1">
         {upcoming.map((b) => (
           <p key={b.id} className="text-xs text-muted-foreground">
@@ -343,7 +348,12 @@ function busStatusText(p: BusPrediction): string {
   }
 }
 
-export function BusTrackingCard({ routes, live }: { routes: BusRouteStatus[]; live?: LiveTrack | null }) {
+export function BusTrackingCard({ routes, live, provider }: {
+  routes: BusRouteStatus[];
+  live?: LiveTrack | null;
+  /** Whether a live provider feeds the routes; then the email view is never shown. Null until known. */
+  provider?: boolean | null;
+}) {
   if (live) {
     return (
       <CardShell icon={<Bus className="h-4 w-4 text-amber-600" />} title="Bus Tracker" count={1}>
@@ -351,13 +361,21 @@ export function BusTrackingCard({ routes, live }: { routes: BusRouteStatus[]; li
           <span className="text-xs font-medium truncate block">{live.routeLabel}</span>
           <div className="flex items-center gap-1.5">
             <div className="w-2 h-2 rounded-full shrink-0 bg-amber-500" />
-            <LiveBusSummary track={live} className="text-[11px] text-muted-foreground" />
+            <LiveBusSummary track={live} className="text-2xs text-muted-foreground" />
           </div>
         </div>
       </CardShell>
     );
   }
   if (!routes || routes.length === 0) return null;
+  if (provider === null) return null;
+  if (provider) {
+    return (
+      <CardShell icon={<Bus className="h-4 w-4 text-amber-600" />} title="Bus Tracker">
+        <p className="text-xs text-muted-foreground">No bus today</p>
+      </CardShell>
+    );
+  }
 
   const active = routes.filter((r) => r.prediction.status !== 'no_data');
 
@@ -371,15 +389,15 @@ export function BusTrackingCard({ routes, live }: { routes: BusRouteStatus[]; li
             <div key={r.id} className="space-y-0.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium truncate">{r.label}</span>
-                <span className="text-[11px] text-muted-foreground shrink-0 ml-2">{r.scheduledTime}</span>
+                <span className="text-2xs text-muted-foreground shrink-0 ml-2">{r.scheduledTime}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className={`w-2 h-2 rounded-full shrink-0 ${busStatusColor(r.prediction)}`} />
-                <span className="text-[11px] text-muted-foreground">{busStatusText(r.prediction)}</span>
+                <span className="text-2xs text-muted-foreground">{busStatusText(r.prediction)}</span>
               </div>
               {r.prediction.lastCheckpointName && r.prediction.minutesSinceLastCheckpoint != null &&
                 r.prediction.status === 'in_transit' && (
-                <p className="text-[10px] text-muted-foreground/70 pl-3.5">
+                <p className="text-3xs text-muted-foreground/70 pl-3.5">
                   Last: {r.prediction.lastCheckpointName} ({r.prediction.minutesSinceLastCheckpoint}m ago)
                 </p>
               )}

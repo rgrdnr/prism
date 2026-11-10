@@ -314,6 +314,24 @@ describe('forecastDays prop', () => {
     expect(screen.queryByText('3-Day Forecast')).not.toBeNull();
   });
 
+  // A widget too short for even one whole day row showed half a row cut off
+  // at the bottom. It now shows none, and no "N-Day Forecast" label.
+  // And when the rows above squeeze the list to no height at all, it showed
+  // a "4-Day Forecast" label over an empty strip.
+  it.each([30, 0])('shows no half day when not even one row fits (list %ipx tall)', (listH) => {
+    const spy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const h = this.dataset.testid === 'weather-day-list' ? listH : 44;
+      return { height: h, width: 300, top: 0, left: 0, right: 300, bottom: h, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+    });
+    try {
+      render(<WeatherWidget data={makeWeatherData()} gridH={12} />);
+      expect(screen.queryByText(/-Day Forecast/)).toBeNull();
+      expect(screen.queryByText('MON')).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('respects an explicit forecastDays value', () => {
     const data = makeWeatherData();
     render(<WeatherWidget data={data} forecastDays={3} />);
@@ -372,12 +390,30 @@ describe('current conditions', () => {
     expect(screen.queryByText('0°C')).not.toBeNull();
   });
 
-  it('renders the weather description', () => {
+  it('renders the weather description with the day\'s high as one line (#800)', () => {
+    const base = makeWeatherData();
     const data = makeWeatherData({
-      current: { ...makeWeatherData().current, description: 'Heavy thunderstorm' },
+      current: { ...base.current, description: 'Heavy thunderstorm' },
+      forecast: base.forecast.map((d, i) => (i === 0 ? { ...d, high: 79 } : d)),
     });
-    render(<WeatherWidget data={data} />);
-    expect(screen.queryByText('Heavy thunderstorm')).not.toBeNull();
+    const { container } = render(<WeatherWidget data={data} />);
+    const line = container.querySelector('[data-weather-condition]');
+    expect(line?.textContent).toBe('Heavy thunderstorm, high 79°F');
+  });
+
+  it('leaves the high out when there is no forecast', () => {
+    const data = makeWeatherData({
+      current: { ...makeWeatherData().current, description: 'Clear' },
+      forecast: [],
+    });
+    const { container } = render(<WeatherWidget data={data} />);
+    expect(container.querySelector('[data-weather-condition]')?.textContent).toBe('Clear');
+  });
+
+  it('draws the temperature in the display face, like the clock (#800)', () => {
+    const { container } = render(<WeatherWidget data={makeWeatherData()} />);
+    const temp = container.querySelector('[data-weather-temp]') as HTMLElement;
+    expect(temp.style.fontFamily).toBe('var(--font-display)');
   });
 
   it('renders the location name', () => {
@@ -520,6 +556,33 @@ describe('sun and moon arcs', () => {
     // 45° maps halfway from the horizon at 66 to the zenith at 10. Treating
     // SunCalc v2's degrees as radians would clamp the point to y=10 instead.
     expect(sunPath?.getAttribute('d')).toContain('38.0');
+  });
+});
+
+
+describe('sun and moon times under the arc', () => {
+  // They were small amber and blue text straight on the card, hard to read
+  // over glass or a bare photo. Now the text is the normal colour on a small
+  // backing; only the icons are coloured.
+  it('sit on a backing, in the normal text colour', () => {
+    render(
+      <WeatherWidget
+        data={makeWeatherData({
+          sunrise: new Date(2026, 6, 17, 5, 30),
+          sunset: new Date(2026, 6, 17, 20, 15),
+          moonrise: new Date(2026, 6, 17, 21, 0),
+          moonset: new Date(2026, 6, 18, 5, 0),
+          moonPhase: 0.5,
+        })}
+      />
+    );
+    for (const id of ['sun-times', 'moon-times', 'header-sun-times']) {
+      const backing = screen.getByTestId(id);
+      expect(backing.className).toMatch(/\bbg-background\/\d+/);
+      for (const time of Array.from(backing.querySelectorAll('[title]')) as HTMLElement[]) {
+        expect([time.title, time.style.color]).toEqual([time.title, '']);
+      }
+    }
   });
 });
 

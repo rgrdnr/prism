@@ -5,20 +5,33 @@ import { cn } from '@/lib/utils';
 import { WelcomeStep } from './steps/WelcomeStep';
 import { FamilyStep } from './steps/FamilyStep';
 import { HouseholdStep } from './steps/HouseholdStep';
+import { CalendarStep } from './steps/CalendarStep';
+import { LookStep } from './steps/LookStep';
 import { CompleteStep } from './steps/CompleteStep';
 
-export type StepId = 'welcome' | 'family' | 'household' | 'complete';
+export type StepId = 'welcome' | 'family' | 'household' | 'calendar' | 'look' | 'complete';
 
-const STEPS: { id: StepId; label: string }[] = [
+const ALL_STEPS: { id: StepId; label: string }[] = [
   { id: 'welcome', label: 'Welcome' },
   { id: 'family', label: 'Family' },
   { id: 'household', label: 'Household' },
+  { id: 'calendar', label: 'Calendars' },
+  { id: 'look', label: 'Look' },
   { id: 'complete', label: 'Done' },
 ];
 
-const CONTENT_STEPS = STEPS.filter((s) => s.id !== 'welcome' && s.id !== 'complete');
+/**
+ * The look is applied only when setup first finishes (#808), so running setup
+ * again from Settings skips the step rather than offer a choice that does
+ * nothing.
+ */
+export function wizardSteps(firstRun: boolean) {
+  return ALL_STEPS.filter((s) => firstRun || s.id !== 'look');
+}
 
-export function SetupWizard() {
+export function SetupWizard({ firstRun = true }: { firstRun?: boolean }) {
+  const STEPS = wizardSteps(firstRun);
+  const CONTENT_STEPS = STEPS.filter((s) => s.id !== 'welcome' && s.id !== 'complete');
   const [currentStep, setCurrentStep] = useState<StepId>('welcome');
 
   const stepIndex = STEPS.findIndex((s) => s.id === currentStep);
@@ -39,7 +52,8 @@ export function SetupWizard() {
   const showProgress = currentStep !== 'welcome' && currentStep !== 'complete';
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
+    // The paper ground, display-face titles and 44px buttons (#930, globals.css).
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4" data-setup-wizard>
       {/* Progress bar */}
       {showProgress && (
         <div className="w-full max-w-lg mb-6">
@@ -48,8 +62,8 @@ export function SetupWizard() {
               <div
                 key={step.id}
                 className={cn(
-                  'text-xs font-medium transition-colors',
-                  i <= contentIndex ? 'text-primary' : 'text-muted-foreground',
+                  'text-caption font-medium transition-colors',
+                  i <= contentIndex ? 'text-foreground' : 'text-muted-foreground',
                 )}
               >
                 {step.label}
@@ -58,7 +72,7 @@ export function SetupWizard() {
           </div>
           <div className="h-1.5 bg-muted rounded-full overflow-hidden">
             <div
-              className="h-full bg-primary rounded-full transition-all duration-500"
+              className="h-full bg-foreground rounded-full transition-all duration-500"
               style={{ width: `${((contentIndex + 1) / CONTENT_STEPS.length) * 100}%` }}
             />
           </div>
@@ -70,12 +84,14 @@ export function SetupWizard() {
         {currentStep === 'welcome' && <WelcomeStep onNext={goNext} />}
         {currentStep === 'family' && <FamilyStep onNext={goNext} onBack={goBack} />}
         {currentStep === 'household' && <HouseholdStep onNext={goNext} onBack={goBack} />}
-        {currentStep === 'complete' && <CompleteStep />}
+        {currentStep === 'calendar' && <CalendarStep onNext={goNext} onBack={goBack} />}
+        {currentStep === 'look' && <LookStep onNext={goNext} onBack={goBack} />}
+        {currentStep === 'complete' && <CompleteStep firstRun={firstRun} />}
       </div>
 
       {/* Step counter */}
       {showProgress && (
-        <p className="mt-4 text-xs text-muted-foreground">
+        <p className="mt-4 text-caption text-muted-foreground">
           Step {contentIndex + 1} of {CONTENT_STEPS.length}
         </p>
       )}

@@ -14,6 +14,7 @@ const PhotoWidget = lazy(() => import('./PhotoWidget').then(m => ({ default: m.P
 const PointsWidget = lazy(() => import('./PointsWidget').then(m => ({ default: m.PointsWidget })));
 const WishesWidget = lazy(() => import('./WishesWidget').then(m => ({ default: m.WishesWidget })));
 const BusTrackingWidget = lazy(() => import('./BusTrackingWidget').then(m => ({ default: m.BusTrackingWidget })));
+const NowNextWidget = lazy(() => import('./NowNextWidget').then(m => ({ default: m.NowNextWidget })));
 const TravelWidget = lazy(() => import('./TravelWidget').then(m => ({ default: m.TravelWidget })));
 const DispatcharrFavoritesWidget = lazy(() => import('./DispatcharrFavoritesWidget').then(m => ({ default: m.DispatcharrFavoritesWidget })));
 const WeeklyPlannerWidget = lazy(() => import('./WeeklyPlannerWidget').then(m => ({ default: m.WeeklyPlannerWidget })));
@@ -38,6 +39,10 @@ export interface WidgetRegistryEntry {
   maxW?: number;
   maxH?: number;
   hasGrid?: boolean;
+  /** Has an empty state (it draws WidgetEmpty), so it can hide when empty
+   *  (#738). Clock, weather, calendar, photos and travel always have
+   *  something to show. */
+  canBeEmpty?: boolean;
 }
 
 export const WIDGET_REGISTRY: Record<string, WidgetRegistryEntry> = {
@@ -77,6 +82,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetRegistryEntry> = {
     minH: 5,
     defaultW: 16,
     defaultH: 12,
+    canBeEmpty: true,
   },
   messages: {
     component: MessagesWidget,
@@ -86,6 +92,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetRegistryEntry> = {
     minH: 5,
     defaultW: 16,
     defaultH: 12,
+    canBeEmpty: true,
   },
   chores: {
     component: ChoresWidget,
@@ -95,6 +102,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetRegistryEntry> = {
     minH: 5,
     defaultW: 16,
     defaultH: 12,
+    canBeEmpty: true,
   },
   shopping: {
     component: ShoppingWidget,
@@ -104,6 +112,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetRegistryEntry> = {
     minH: 5,
     defaultW: 16,
     defaultH: 12,
+    canBeEmpty: true,
   },
   meals: {
     component: MealsWidget,
@@ -113,6 +122,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetRegistryEntry> = {
     minH: 6,
     defaultW: 24,
     defaultH: 14,
+    canBeEmpty: true,
   },
   birthdays: {
     component: BirthdaysWidget,
@@ -122,6 +132,16 @@ export const WIDGET_REGISTRY: Record<string, WidgetRegistryEntry> = {
     minH: 5,
     defaultW: 16,
     defaultH: 10,
+    canBeEmpty: true,
+  },
+  nowNext: {
+    component: NowNextWidget,
+    label: 'Now & Next',
+    icon: 'Timer',
+    minW: 12,
+    minH: 4,
+    defaultW: 24,
+    defaultH: 6,
   },
   photos: {
     component: PhotoWidget,
@@ -140,6 +160,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetRegistryEntry> = {
     minH: 8,
     defaultW: 12,
     defaultH: 12,
+    canBeEmpty: true,
   },
   wishes: {
     component: WishesWidget,
@@ -149,6 +170,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetRegistryEntry> = {
     minH: 6,
     defaultW: 12,
     defaultH: 10,
+    canBeEmpty: true,
   },
   busTracking: {
     component: BusTrackingWidget,
@@ -158,6 +180,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetRegistryEntry> = {
     minH: 6,
     defaultW: 12,
     defaultH: 8,
+    canBeEmpty: true,
   },
   travel: {
     component: TravelWidget,
@@ -204,4 +227,5 @@ export const SCREENSAVER_WIDGETS = [
   { id: 'photos', label: 'Photos' },
   { id: 'wishes', label: 'Wishes' },
   { id: 'busTracking', label: 'Bus Tracker' },
+  { id: 'nowNext', label: 'Now & Next' },
 ];

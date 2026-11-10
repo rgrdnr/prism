@@ -112,6 +112,18 @@ export function LiveTrackingCard({ routes, onBound }: { routes: RouteOption[]; o
     [tracks],
   );
 
+  // The clipboard API is missing on a plain http:// page and can refuse
+  // elsewhere, so only report a copy that happened. The token is select-all,
+  // so one tap selects all of it for copying by hand.
+  const handleCopyToken = async (token: string) => {
+    try {
+      await navigator.clipboard.writeText(token);
+      toast({ title: 'Token copied' });
+    } catch {
+      toast({ title: "Couldn't copy the token", description: 'Tap the token to select it, then copy it by hand.', variant: 'destructive' });
+    }
+  };
+
   const handleCreateToken = async () => {
     setCreating(true);
     try {
@@ -234,16 +246,17 @@ export function LiveTrackingCard({ routes, onBound }: { routes: RouteOption[]; o
           {newToken ? (
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs">{newToken}</code>
+                <code className="flex-1 truncate select-all rounded bg-muted px-2 py-1 text-xs">{newToken}</code>
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => { void navigator.clipboard?.writeText(newToken); toast({ title: 'Token copied' }); }}
+                  aria-label="Copy token"
+                  onClick={() => void handleCopyToken(newToken)}
                 >
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
-              <p className="text-[11px] text-muted-foreground">Shown once. Revoke it under Security if it is ever exposed.</p>
+              <p className="text-2xs text-muted-foreground">Shown once. Revoke it under Security if it is ever exposed.</p>
             </div>
           ) : (
             <Button size="sm" variant="outline" onClick={handleCreateToken} disabled={creating}>
@@ -265,7 +278,7 @@ export function LiveTrackingCard({ routes, onBound }: { routes: RouteOption[]; o
                     <div className="text-sm font-medium truncate">
                       {track.label ?? 'Unnamed trip'}{track.direction ? ` · ${track.direction}` : ''}
                     </div>
-                    <div className="text-[11px] text-muted-foreground">
+                    <div className="text-2xs text-muted-foreground">
                       {track.provider} · last seen {track.tripDate}
                     </div>
                   </div>
@@ -305,7 +318,7 @@ export function LiveTrackingCard({ routes, onBound }: { routes: RouteOption[]; o
                 </div>
               ))}
             </div>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               How each driver appears on the display. Left blank, the name shows as the provider reports it.
             </p>
           </div>
@@ -326,7 +339,7 @@ export function LiveTrackingCard({ routes, onBound }: { routes: RouteOption[]; o
             value={camera}
             onChange={v => saveChoice(BUS_MAP_CAMERA_SETTING, v, camera, setCamera)}
           />
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-2xs text-muted-foreground">
             The map turns dark with Prism&apos;s theme. Zoom with its + and - buttons; the camera takes over again a minute later.
           </p>
         </div>
@@ -342,7 +355,7 @@ export function LiveTrackingCard({ routes, onBound }: { routes: RouteOption[]; o
                 onChange={e => setTraceDays(e.target.value)}
                 className="h-8 w-24 text-sm" aria-label="Days to keep the exact trace"
               />
-              <p className="text-[11px] text-muted-foreground mt-0.5">days of exact route</p>
+              <p className="text-2xs text-muted-foreground mt-0.5">days of exact route</p>
             </div>
             <div>
               <Input
@@ -350,7 +363,7 @@ export function LiveTrackingCard({ routes, onBound }: { routes: RouteOption[]; o
                 onChange={e => setHistoryDays(e.target.value)}
                 className="h-8 w-24 text-sm" aria-label="Days to keep stop times"
               />
-              <p className="text-[11px] text-muted-foreground mt-0.5">days of stop times</p>
+              <p className="text-2xs text-muted-foreground mt-0.5">days of stop times</p>
             </div>
             {retentionDirty && (
               <Button size="sm" onClick={handleSaveRetention}>
@@ -358,7 +371,7 @@ export function LiveTrackingCard({ routes, onBound }: { routes: RouteOption[]; o
               </Button>
             )}
           </div>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-2xs text-muted-foreground">
             The exact route is where the bus was minute by minute. Stop times are only when it reached each stop, which is what arrival predictions learn from. Both stay on this server.
           </p>
         </div>
@@ -439,7 +452,7 @@ function AccuracySection({ routes }: { routes: RouteAccuracy[] }) {
     <div className="space-y-2">
       <Label className="text-xs">Arrival time accuracy</Label>
       {scored.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-2xs text-muted-foreground">
           Nothing measured yet. Each trip that reaches your stop is scored at 20, 15, 10, 5 and 2 minutes out; days without a bus are not counted.
         </p>
       ) : scored.map((route) => (
@@ -472,7 +485,7 @@ function AccuracySection({ routes }: { routes: RouteAccuracy[] }) {
           </table>
         </div>
       ))}
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-2xs text-muted-foreground">
         Scored only on trips that reached your stop, never on days without a bus. Shown after {MIN_SCORED_TRIPS} trips.
       </p>
     </div>

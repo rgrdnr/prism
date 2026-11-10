@@ -1,5 +1,31 @@
+import { redirect } from 'next/navigation';
 import { DashboardClient } from './DashboardClient';
 import { db } from '@/lib/db/client';
+import { currentDisplay } from '@/lib/auth/displayIdentity';
+import { getHouseholdTimezone } from '@/lib/householdTimezone';
+import { screenDashboardAt } from '@/lib/displays/screenSchedule';
+import { pageZoomVars } from '@/lib/utils/zoomVars';
+
+/**
+ * A named screen with its own dashboard set (#690) opens on that one instead
+ * of the household default, or on the one its schedule shows right now
+ * (#692). Null when it has none, or it no longer exists.
+ */
+async function screenDashboardSlug(): Promise<string | null> {
+  try {
+    const screen = await currentDisplay();
+    if (!screen) return null;
+    const all = await db.query.layouts.findMany({ columns: { id: true, slug: true, isDefault: true } });
+    const id = screenDashboardAt(
+      screen, Date.now(), await getHouseholdTimezone(),
+      (d) => all.some((l) => l.id === d),
+    );
+    const layout = all.find((l) => l.id === id);
+    return layout && !layout.isDefault ? layout.slug : null;
+  } catch {
+    return null;
+  }
+}
 
 export const metadata = {
   title: 'Dashboard',
@@ -15,6 +41,9 @@ export const dynamic = 'force-dynamic';
 // dashboard — fix is to fetch the default layout's fontScale here and apply
 // the same zoom wrapper.
 export default async function HomePage() {
+  const slug = await screenDashboardSlug();
+  if (slug) redirect(`/d/${slug}`);
+
   let fontScale = 100;
   try {
     const layout = await db.query.layouts.findFirst({
@@ -27,7 +56,7 @@ export default async function HomePage() {
   }
 
   return (
-    <main className="min-h-screen bg-background">
+    <main className="min-h-fill bg-background">
       <div id="ssr-placeholder" className="h-screen flex items-center justify-center" aria-hidden="true">
         <h1 className="text-4xl font-bold text-muted-foreground/20">Prism</h1>
       </div>
@@ -40,7 +69,7 @@ export default async function HomePage() {
       <div
         style={
           fontScale !== 100
-            ? ({ zoom: fontScale / 100, '--app-vh': `${10000 / fontScale}vh` } as React.CSSProperties)
+            ? ({ zoom: fontScale / 100, '--app-vh': `${10000 / fontScale}vh`, ...pageZoomVars(fontScale) } as React.CSSProperties)
             : undefined
         }
       >

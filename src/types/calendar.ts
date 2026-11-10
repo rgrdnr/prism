@@ -28,6 +28,16 @@ export interface CalendarEvent {
   groupId?: string;
   /** Curated as a Weekly Planner highlight (local-only, not synced). */
   showOnPlanner?: boolean;
+  /** Its calendar's "hide after" time of day, HH:mm (#877). */
+  hideAfter?: string;
+  /**
+   * The same event on other people's calendars, merged into this one (#1066):
+   * their event ids, calendars and colours (colours other than this one's).
+   */
+  alsoIds?: string[];
+  alsoCalendarIds?: string[];
+  alsoCalendarNames?: string[];
+  alsoColors?: string[];
 }
 
 /**

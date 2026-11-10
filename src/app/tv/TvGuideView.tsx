@@ -39,7 +39,7 @@ function ChannelCard({ channel, now }: { channel: GuideChannel; now: number }) {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={channel.logoUrl} alt="" className="h-12 w-12 rounded object-contain" />
         {channel.channelNumber && (
-          <span className="text-[10px] text-muted-foreground">Ch {channel.channelNumber}</span>
+          <span className="text-3xs text-muted-foreground">Ch {channel.channelNumber}</span>
         )}
       </div>
 

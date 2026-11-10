@@ -13,7 +13,7 @@
  */
 
 import { createHmac } from 'crypto';
-import { and, asc, eq, inArray, isNotNull, isNull, lt } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt } from 'drizzle-orm';
 import { db } from '@/lib/db/client';
 import {
   busStopVisits, busTrips, vehicleFixes, vehicleTracks, type LiveTrackStop,
@@ -127,6 +127,80 @@ export async function firstMoves(trackIds: string[]): Promise<Map<string, Date>>
     if (first) moved.set(trackId, first.ts);
   }
   return moved;
+}
+
+/** How many recent trips the usual lateness looks at, and how many it needs. */
+export const USUAL_LATE_TRIPS = 10;
+export const USUAL_LATE_MIN_TRIPS = 3;
+
+/** The least of these lateness values, once there are enough of them to mean something. */
+export function leastLate(lateMs: number[]): number | null {
+  return lateMs.length >= USUAL_LATE_MIN_TRIPS ? Math.min(...lateMs) : null;
+}
+
+/** The typical (median) of these lateness values, once there are enough of them to mean something. */
+export function typicalLate(lateMs: number[]): number | null {
+  if (lateMs.length < USUAL_LATE_MIN_TRIPS) return null;
+  const sorted = [...lateMs].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+export interface PastStopVisit {
+  stopKey: string;
+  plannedAt: Date;
+  arrivedAt: Date;
+  /** The stops of the track that visit belongs to, that day. */
+  trackStops: LiveTrackStop[];
+}
+
+/**
+ * Lateness at the rider's stop on each past trip, newest first. Keys are only
+ * stable for the day, so the stop is found by where it sits on that day's
+ * track: the track stop at the same order. Route stops that are not on the
+ * track are skipped, whatever order they were stored with.
+ */
+export function riderStopLateness(visits: PastStopVisit[], riderOrder: number): number[] {
+  return visits
+    .filter((v) => v.trackStops.some((s) => s.key === v.stopKey && s.order === riderOrder))
+    .slice(0, USUAL_LATE_TRIPS)
+    .map((v) => v.arrivedAt.getTime() - v.plannedAt.getTime());
+}
+
+/**
+ * How far behind plan the bus was at the rider's stop (the track stop at
+ * `riderOrder`) on its recent trips before `beforeDate`, in ms, newest first.
+ */
+export async function recentLateness(routeId: string, riderOrder: number, beforeDate: string): Promise<number[]> {
+  const rows = await db
+    .select({
+      stopKey: busStopVisits.stopKey,
+      plannedAt: busStopVisits.plannedAt,
+      arrivedAt: busStopVisits.arrivedAt,
+      trackStops: vehicleTracks.stops,
+    })
+    .from(busStopVisits)
+    .innerJoin(vehicleTracks, eq(busStopVisits.trackId, vehicleTracks.id))
+    .where(and(
+      eq(busStopVisits.routeId, routeId),
+      eq(busStopVisits.stopOrder, riderOrder),
+      lt(busStopVisits.tripDate, beforeDate),
+      isNotNull(busStopVisits.plannedAt),
+      isNotNull(busStopVisits.arrivedAt),
+    ))
+    .orderBy(desc(busStopVisits.tripDate))
+    // Route stops share stop_order 0, so fetch enough to find ten trips past them.
+    .limit(USUAL_LATE_TRIPS * 40);
+  return riderStopLateness(rows as PastStopVisit[], riderOrder);
+}
+
+/**
+ * The least the bus has been behind plan at the rider's stop over its recent
+ * trips, in ms; null with too few. The least, not the typical, because the
+ * ETA must not tell anyone the bus is later than it may be.
+ */
+export async function usualLateness(routeId: string, riderOrder: number, beforeDate: string): Promise<number | null> {
+  return leastLate(await recentLateness(routeId, riderOrder, beforeDate));
 }
 
 /**

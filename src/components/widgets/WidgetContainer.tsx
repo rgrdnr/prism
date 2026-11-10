@@ -266,7 +266,8 @@ export function WidgetContainer({
           const hasSolidWidgetBg =
             !!backgroundColor &&
             backgroundColor !== 'transparent' &&
-            backgroundColor !== 'frosted';
+            backgroundColor !== 'frosted' &&
+            backgroundColor !== 'glass';
 
           if (!overrideTextColor && !hasSolidWidgetBg) return {};
 
@@ -328,7 +329,9 @@ export function WidgetContainer({
             )}
             {/* Title - clickable link if titleHref provided */}
             {titleHref ? (
-              <Link href={titleHref} className="hover:underline min-w-0">
+              // A 44px target on a touch screen (#837); the negative margin
+              // keeps the header the same height, so the tap area grows, not the text.
+              <Link href={titleHref} className="hover:underline min-w-0 pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:min-h-[44px] pointer-coarse:-my-[5.5px]">
                 <CardTitle className="text-base font-medium truncate">
                   {title}
                 </CardTitle>
@@ -430,6 +433,18 @@ function WidgetError({ message }: { message: string }) {
  *   <TaskList tasks={tasks} />
  * )}
  */
+/**
+ * Lets the grid cell around a widget know it is showing its empty state, so a
+ * widget set to hide when empty (#738) can be hidden. Null outside a grid.
+ *
+ * Reported by WidgetEmpty itself rather than worked out from each widget's
+ * data: the widget has already decided what it would show (open tasks only,
+ * upcoming birthdays only), so this cannot disagree with what is on screen.
+ * WidgetContainer draws nothing of its children while loading or in error, so
+ * a loading widget never counts as empty.
+ */
+export const WidgetEmptyReportContext = React.createContext<((empty: boolean) => void) | null>(null);
+
 export function WidgetEmpty({
   icon,
   message,
@@ -439,6 +454,13 @@ export function WidgetEmpty({
   message: string;
   action?: React.ReactNode;
 }) {
+  const report = React.useContext(WidgetEmptyReportContext);
+  React.useEffect(() => {
+    if (!report) return;
+    report(true);
+    return () => report(false);
+  }, [report]);
+
   return (
     <div className="flex h-full w-full flex-col items-center justify-center text-center p-4 gap-3">
       {icon && (

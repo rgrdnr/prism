@@ -96,7 +96,7 @@ function DispatcharrFavoritesList({ className }: DispatcharrFavoritesWidgetProps
                   <span className="min-w-0">
                     <span className="text-xs font-medium truncate block">{channel.channelName}</span>
                     {channel.channelNumber && (
-                      <span className="text-[10px] text-muted-foreground">Ch {channel.channelNumber}</span>
+                      <span className="text-3xs text-muted-foreground">Ch {channel.channelNumber}</span>
                     )}
                   </span>
                 </a>
@@ -104,7 +104,7 @@ function DispatcharrFavoritesList({ className }: DispatcharrFavoritesWidgetProps
             })}
           </div>
           {serviceUnavailable && (
-            <p className="mt-2 text-[10px] text-muted-foreground text-center">
+            <p className="mt-2 text-3xs text-muted-foreground text-center">
               Can&apos;t reach the TV service right now
             </p>
           )}

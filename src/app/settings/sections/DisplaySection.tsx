@@ -1,7 +1,8 @@
 'use client';
 
+import { PHOTO_DATE_SETTING, PHOTO_ON_THIS_DAY_SETTING, PHOTO_PLACE_SETTING } from '@/lib/photos/caption';
 import { useState, useEffect, useCallback } from 'react';
-import { Sun, Moon, Monitor, Share2, Store } from 'lucide-react';
+import { Sun, Moon, Monitor, Share2, Store, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -18,11 +19,13 @@ import { useScreenOrientation } from '@/lib/hooks/useScreenOrientation';
 import { useOrientationOverride } from '../SettingsView';
 import { useScreensaverTimeout } from '@/lib/hooks/useScreensaverTimeout';
 import { useScreensaverMotion, type ScreensaverMotion } from '@/components/screensaver/useScreensaverMotion';
-import { useScreensaverBackdrop, type ScreensaverBackdrop } from '@/components/screensaver/useScreensaverBackdrop';
+import { DIM_LEVELS, useIdleDimSetting } from '@/components/screensaver/idleDim';
 import { useIdleLogoutSetting, IDLE_LOGOUT_OPTIONS } from '@/lib/hooks/useIdleLogout';
 import { useAutoHideUI } from '@/lib/hooks/useAutoHideUI';
 import { useAwayModeTimeout } from '@/lib/hooks/useAwayModeTimeout';
 import { usePerformanceMode } from '@/lib/hooks/usePerformanceMode';
+import type { PerfLevel, PerfMode } from '@/lib/perfLevel';
+import { AURORA_SETTING } from '@/lib/integrations/aurora';
 
 function getCurrentMonthNum(): number {
   return new Date().getMonth() + 1;
@@ -39,11 +42,30 @@ function SectionDivider({ label }: { label: string }) {
   );
 }
 
+/**
+ * A rarely changed setting, folded to one line with its current value (#1017);
+ * a tap opens it. Native <details>, so it works with the keyboard and reader.
+ */
+function FoldCard({ id, title, value, children }: { id: string; title: string; value: string; children: React.ReactNode }) {
+  return (
+    <details className="group rounded-xl border bg-card text-card-foreground" data-fold={id}>
+      <summary className="flex min-h-[56px] cursor-pointer list-none items-center gap-3 px-6 [&::-webkit-details-marker]:hidden">
+        <span className="font-semibold">{title}</span>
+        <span className="ml-auto text-sm text-muted-foreground" data-fold-value>{value}</span>
+        <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden />
+      </summary>
+      <div className="border-t [&>*]:rounded-none [&>*]:border-0 [&>*]:shadow-none">{children}</div>
+    </details>
+  );
+}
+
 export function DisplaySection() {
   const { theme, setTheme, resolvedTheme, palette: activePalette, palettes, setPalette, installedThemes } = useTheme();
   const { seasonalTheme, setSeasonalTheme, palette } = useSeasonalTheme();
   const [sharing, setSharing] = useState(false);
   const [browsing, setBrowsing] = useState(false);
+  // The palette in use as one row; the full set only when changing it (#1017).
+  const [choosing, setChoosing] = useState(false);
   const [importErrors, setImportErrors] = useState<string[]>([]);
 
   const mode: 'auto' | 'manual' | 'off' =
@@ -65,10 +87,10 @@ export function DisplaySection() {
         </p>
       </div>
 
-      <SectionDivider label="Theme" />
-      {/* A section spreads across the width rather than running down it:
-          Seasonal Theme sits beside Color Scheme instead of below it. The
-          divider stays full width so the grouping still reads as one thing. */}
+      <SectionDivider label="Look" />
+      <div data-appearance-group="look" className="flex flex-col gap-4">
+
+      {/* Seasonal Theme sits beside Color Scheme rather than below it. */}
       <div className="grid xl:grid-cols-2 2xl:grid-cols-3 gap-4 items-start">
 
       <Card>
@@ -136,7 +158,23 @@ export function DisplaySection() {
                 ))}
               </div>
             )}
-            <div className="grid grid-cols-2 gap-3">
+            {(() => {
+              const preview = resolvedTheme === 'dark' ? activePalette.dark : activePalette.light;
+              return (
+                <div className="flex min-h-[56px] items-center gap-3 rounded-lg border border-border px-3" data-palette-current>
+                  <div className="flex gap-1.5">
+                    {(['background', 'card', 'primary', 'accent', 'destructive'] as const).map((tok) => (
+                      <span key={tok} className="h-6 w-6 rounded border border-black/10" style={{ backgroundColor: `hsl(${preview[tok]})` }} />
+                    ))}
+                  </div>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{activePalette.name}</span>
+                  <Button variant="outline" size="sm" onClick={() => setChoosing(!choosing)} aria-expanded={choosing} data-palette-change>
+                    {choosing ? 'Done' : 'Change'}
+                  </Button>
+                </div>
+              );
+            })()}
+            {choosing && <div className="grid grid-cols-2 gap-3" data-palette-grid>
               {palettes.map((p) => {
                 const preview = resolvedTheme === 'dark' ? p.dark : p.light;
                 return (
@@ -169,14 +207,14 @@ export function DisplaySection() {
                           to say which is which before anyone goes looking for
                           a Remove button that is not there. */}
                       {installedThemes.some((t) => t.id === p.id) && (
-                        <span className="text-[10px] text-muted-foreground">Community</span>
+                        <span className="text-3xs text-muted-foreground">Community</span>
                       )}
                     </div>
                     <div className="text-xs text-muted-foreground">{p.description}</div>
                   </button>
                 );
               })}
-            </div>
+            </div>}
           </div>
         </CardContent>
       </Card>
@@ -264,32 +302,25 @@ export function DisplaySection() {
       </Card>
 
       </div>
-      <SectionDivider label="Wallpaper & Display" />
-      {/* A section spreads across the width rather than running down it:
-          Seasonal Theme sits beside Color Scheme instead of below it. The
-          divider stays full width so the grouping still reads as one thing. */}
-      <div className="grid xl:grid-cols-2 2xl:grid-cols-3 gap-4 items-start">
-
-      <PerformanceModeCard />
-
-      <OrientationCard />
-
-      <WallpaperSettingsCard />
-
       </div>
-      <SectionDivider label="Behavior" />
-      {/* A section spreads across the width rather than running down it:
-          Seasonal Theme sits beside Color Scheme instead of below it. The
-          divider stays full width so the grouping still reads as one thing. */}
-      <div className="grid xl:grid-cols-2 2xl:grid-cols-3 gap-4 items-start">
 
-      <ScreensaverCard />
-      <TimersCard />
+      {/* Grouped by what a person is doing (#1017). */}
+      <SectionDivider label="Background and idle" />
+      <div className="grid xl:grid-cols-2 2xl:grid-cols-3 gap-4 items-start" data-appearance-group="background">
+        <WallpaperSettingsCard />
+        <ScreensaverCard />
+        <TimersCard />
+      </div>
 
-      <WeatherUnitsCard />
-
-      <LanguageCard />
-
+      <SectionDivider label="This screen" />
+      <div className="grid xl:grid-cols-2 2xl:grid-cols-3 gap-4 items-start" data-appearance-group="screen">
+        <OrientationCard />
+        {/* Rarely changed: folded to one line with the current value. */}
+        <div className="flex flex-col gap-3">
+          <PerformanceModeCard />
+          <WeatherUnitsCard />
+          <LanguageCard />
+        </div>
       </div>
     </div>
   );
@@ -313,9 +344,9 @@ function LanguageCard() {
   );
 
   return (
+    <FoldCard id="language" title="Language" value={APP_LOCALES.find((l) => l.value === locale)?.label ?? locale}>
     <Card>
       <CardHeader>
-        <CardTitle>Language <span className="text-xs font-normal text-muted-foreground">(early preview)</span></CardTitle>
         <CardDescription>
           The dashboard&apos;s display language. English is the default; other languages fall back to English
           for anything not yet translated. Only part of the UI is translated so far — this is an early preview.
@@ -342,6 +373,7 @@ function LanguageCard() {
         </div>
       </CardContent>
     </Card>
+    </FoldCard>
   );
 }
 
@@ -375,9 +407,9 @@ function WeatherUnitsCard() {
   if (units === null) return null;
 
   return (
+    <FoldCard id="units" title="Units" value={units === 'metric' ? 'Metric' : 'Imperial'}>
     <Card>
       <CardHeader>
-        <CardTitle>Units</CardTitle>
         <CardDescription>
           Imperial shows °F, mph, and inches. Metric shows °C, km/h, and mm. Applies to weather everywhere it is shown (widget, mobile cards, away mode, babysitter mode) and to the live bus speed.
         </CardDescription>
@@ -413,6 +445,7 @@ function WeatherUnitsCard() {
         </div>
       </CardContent>
     </Card>
+    </FoldCard>
   );
 }
 
@@ -509,7 +542,54 @@ function TimersCard() {
  * for it — the screensaver editor — didn't mention it either. Giving it a card
  * with its own name is the whole fix.
  */
-function ScreensaverCard() {
+/**
+ * Aurora on the night sky, for the whole household: one switch, because it is
+ * one forecast, fetched by the server for the household location.
+ */
+function AuroraToggle() {
+  const [on, setOn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => setOn(data?.settings?.[AURORA_SETTING] === true))
+      .catch(() => setOn(false));
+  }, []);
+
+  const save = useCallback(async (next: boolean) => {
+    setOn(next);
+    try {
+      await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: AURORA_SETTING, value: next }),
+      });
+    } catch { /* ignore — UI already updated optimistically */ }
+  }, []);
+
+  if (on === null) return null;
+
+  return (
+    <div className="pl-2">
+      <label className="flex items-center gap-3 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={(e) => save(e.target.checked)}
+          className="rounded border-border"
+        />
+        <span className="text-sm text-muted-foreground">Say when aurora may be visible</span>
+      </label>
+      <p className="text-xs text-muted-foreground mt-1">
+        On every display, the night sky checks NOAA&apos;s aurora forecast for the household location every 30 minutes
+        after dark and says so when aurora may be seen. Mostly seen far north or south, and farther from the poles only
+        in strong storms.
+      </p>
+    </div>
+  );
+}
+
+export function ScreensaverCard() {
   const { timeout: ssTimeout, setTimeout: setSsTimeout } = useScreensaverTimeout();
   const { interval: photoInterval, setInterval: setPhotoInterval } = useScreensaverInterval();
   const {
@@ -519,7 +599,7 @@ function ScreensaverCard() {
     shortcut, setShortcut, drift, setDrift,
     carbonation, setCarbonation, waterClear, setWaterClear, wobble, setWobble, speed, setSpeed,
   } = useScreensaverMotion();
-  const { backdrop, setBackdrop } = useScreensaverBackdrop();
+  const { level: dimLevel, setLevel: setDimLevel } = useIdleDimSetting();
 
   return (
     <Card id="screensaver-settings">
@@ -545,24 +625,10 @@ function ScreensaverCard() {
               <option value={0}>Never</option>
             </select>
           </div>
-          <div className="flex items-center gap-3 pl-2">
-            <span className="text-sm text-muted-foreground">Background</span>
-            <select
-              value={backdrop}
-              onChange={(e) => setBackdrop(e.target.value as ScreensaverBackdrop)}
-              className="border border-border rounded px-2 py-1 text-sm bg-background"
-            >
-              <option value="photos">Photos</option>
-              <option value="sky">Night sky</option>
-              <option value="skyAtNight">Photos by day, night sky after dark</option>
-            </select>
-          </div>
-          {backdrop !== 'photos' && (
-            <p className="text-xs text-muted-foreground pl-2">
-              The stars and moon as they are outside now, worked out from the location in
-              Settings &gt; General.
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground pl-2">
+            Photos or the night sky behind it is chosen for each dashboard, in the layout editor.
+          </p>
+          <AuroraToggle />
           <div className="flex items-center gap-3 pl-2">
             <span className="text-sm text-muted-foreground">Widget transition effect</span>
             <select
@@ -618,17 +684,17 @@ function ScreensaverCard() {
               </select>
             </div>
           )}
-          {motion !== 'off' && (
-            <label className="flex items-center gap-3 pl-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!outlines}
-                onChange={(e) => setOutlines(!e.target.checked)}
-                className="rounded border-border"
-              />
-              <span className="text-sm text-muted-foreground">Hide widget outlines</span>
-            </label>
-          )}
+          {/* Outlines show with or without a transition effect, so this is
+              not under motion !== 'off' like the controls above. */}
+          <label className="flex items-center gap-3 pl-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!outlines}
+              onChange={(e) => setOutlines(!e.target.checked)}
+              className="rounded border-border"
+            />
+            <span className="text-sm text-muted-foreground">Hide widget outlines</span>
+          </label>
           <div className="flex items-center gap-3 pl-2">
             <span className="text-sm text-muted-foreground">Transition length</span>
             <select
@@ -698,6 +764,23 @@ function ScreensaverCard() {
             applies to the screensaver and to a dashboard that fades to a calm view of
             itself.
           </p>
+          <div className="flex items-center gap-3 pl-2 flex-wrap">
+            <span className="text-sm text-muted-foreground">Dim at night</span>
+            <select
+              aria-label="Dim at night"
+              value={dimLevel}
+              onChange={(e) => setDimLevel(e.target.value)}
+              className="border border-border rounded px-2 py-1 text-sm bg-background"
+            >
+              {DIM_LEVELS.map((l) => <option key={l.raw} value={l.raw}>{l.label}</option>)}
+            </select>
+          </div>
+          <p className="text-xs text-muted-foreground pl-2" data-dim-hours>
+            Darkens the resting screen at night. When night is, dusk to dawn or set times, is
+            set with each dashboard: edit it, then Through the day. How dark is set per screen.
+            A touch brings back full brightness. A web page cannot change the screen&apos;s own
+            brightness or power.
+          </p>
           <label className="flex items-center gap-3 pl-2 cursor-pointer">
             <input
               type="checkbox"
@@ -742,31 +825,50 @@ function ScreensaverCard() {
   );
 }
 
+const PERF_CHOICES: { mode: PerfMode; label: string; detail: string }[] = [
+  { mode: 'auto', label: 'Auto', detail: 'Starts at Full and steps down by itself if fades on this screen stutter.' },
+  { mode: 'full', label: 'Full', detail: 'Everything: blur, celebrations, moving night sky, photo slideshow.' },
+  { mode: 'reduced', label: 'Reduced', detail: 'No blur, no full-screen celebrations or particle effects, a still night sky.' },
+  { mode: 'minimal', label: 'Minimal', detail: 'Reduced, plus one static photo, slower refreshes, and near-instant fades.' },
+];
+
+const LEVEL_LABEL: Record<PerfLevel, string> = { full: 'Full', reduced: 'Reduced', minimal: 'Minimal' };
+
 function PerformanceModeCard() {
-  const { enabled, setEnabled } = usePerformanceMode();
+  const { mode, level, setMode } = usePerformanceMode();
   return (
+    <FoldCard id="performance" title="Performance" value={PERF_CHOICES.find((c) => c.mode === mode)?.label ?? mode}>
     <Card>
       <CardHeader>
-        <CardTitle>Performance Mode</CardTitle>
         <CardDescription>
-          A lighter preset for low-end hardware (thin clients, older mini PCs)
+          How much visual work this screen does. Lighter levels suit thin clients and older mini PCs.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <span className="text-sm font-medium">Enable performance mode</span>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Disables backdrop blur, stretches polling intervals, and shows a single static photo instead of a slideshow. Auto-enabled on devices reporting ≤2 GB RAM or ≤4 CPU cores; you can override it here at any time.
-            </p>
-          </div>
-          <Switch
-            checked={enabled}
-            onCheckedChange={setEnabled}
-          />
-        </div>
+      <CardContent className="space-y-2" role="radiogroup" aria-label="Performance">
+        {PERF_CHOICES.map(choice => (
+          <label key={choice.mode} className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="radio"
+              name="perf-mode"
+              value={choice.mode}
+              checked={mode === choice.mode}
+              onChange={() => setMode(choice.mode)}
+              className="mt-1"
+            />
+            <span>
+              <span className="text-sm font-medium">
+                {choice.label}
+                {choice.mode === 'auto' && mode === 'auto' && (
+                  <span className="font-normal text-muted-foreground"> (now running: {LEVEL_LABEL[level]})</span>
+                )}
+              </span>
+              <span className="block text-xs text-muted-foreground mt-0.5">{choice.detail}</span>
+            </span>
+          </label>
+        ))}
       </CardContent>
     </Card>
+    </FoldCard>
   );
 }
 
@@ -820,6 +922,7 @@ function WallpaperSettingsCard() {
                 onCheckedChange={setAutoOrientation}
               />
             </div>
+            <PhotoCaptionSettings />
           </>
         )}
       </CardContent>
@@ -867,5 +970,56 @@ function OrientationCard() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * When and where photos were taken, on the wall and the screensaver (#958).
+ * Household settings: the date shows unless turned off; the place only when
+ * turned on, because finding it sends a photo's rough location to
+ * OpenStreetMap's geocoder.
+ */
+function PhotoCaptionSettings() {
+  const [values, setValues] = useState<{ date: boolean; place: boolean; onThisDay: boolean } | null>(null);
+  useEffect(() => {
+    fetch('/api/settings').then((r) => (r.ok ? r.json() : null)).then((d) => setValues({
+      date: d?.settings?.[PHOTO_DATE_SETTING] !== false,
+      place: d?.settings?.[PHOTO_PLACE_SETTING] === true,
+      onThisDay: d?.settings?.[PHOTO_ON_THIS_DAY_SETTING] === true,
+    })).catch(() => setValues({ date: true, place: false, onThisDay: false }));
+  }, []);
+  const save = async (key: string, field: 'date' | 'place' | 'onThisDay', value: boolean) => {
+    const before = values;
+    setValues((v) => (v ? { ...v, [field]: value } : v));
+    const res = await fetch('/api/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value }) }).catch(() => null);
+    if (!res?.ok) setValues(before);
+  };
+  if (!values) return null;
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <div>
+          <span className="text-sm font-medium">Show when photos were taken</span>
+          <p className="text-xs text-muted-foreground">A short line in a free corner, like &ldquo;March 2019&rdquo;</p>
+        </div>
+        <Switch checked={values.date} onCheckedChange={(v) => void save(PHOTO_DATE_SETTING, 'date', v)} aria-label="Show when photos were taken" />
+      </div>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <span className="text-sm font-medium">Show where photos were taken</span>
+          <p className="text-xs text-muted-foreground">
+            Names the town for photos that have a location. To find it, Prism sends the photo&rsquo;s rough location (to about a kilometre) to OpenStreetMap, once per photo.
+          </p>
+        </div>
+        <Switch checked={values.place} onCheckedChange={(v) => void save(PHOTO_PLACE_SETTING, 'place', v)} aria-label="Show where photos were taken" />
+      </div>
+      <div className="flex items-center justify-between">
+        <div>
+          <span className="text-sm font-medium">On this day</span>
+          <p className="text-xs text-muted-foreground">On a date with photos from earlier years, show those more often</p>
+        </div>
+        <Switch checked={values.onThisDay} onCheckedChange={(v) => void save(PHOTO_ON_THIS_DAY_SETTING, 'onThisDay', v)} aria-label="On this day" />
+      </div>
+    </>
   );
 }

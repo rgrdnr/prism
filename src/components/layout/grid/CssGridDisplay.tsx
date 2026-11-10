@@ -1,13 +1,33 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { WidgetBgOverrideProvider } from '@/components/widgets/WidgetContainer';
-import { getWidgetStyle, getWidgetContentStyle, getTextColorClass } from './gridWidgetStyles';
+import { tileAlign, type AlignSetting } from '@/lib/layout/tileAlign';
+import { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, ViewTransition } from 'react';
+import { SCHEDULE_TRANSITION } from '@/lib/displays/screenSchedule';
+import { WidgetBgOverrideProvider, WidgetEmptyReportContext } from '@/components/widgets/WidgetContainer';
+import { getWidgetStyle, getWidgetContentStyle, getTextColorClass, getWidgetOutlineClass } from './gridWidgetStyles';
 import { useSquareCells } from './useSquareCells';
+import { useEmptyWidgets } from './useEmptyWidgets';
+import { hidesWhenEmpty } from './hideWhenEmpty';
+import { isSmallScreen, layoutForSmallScreen } from '@/lib/layout/smallScreen';
 import { useViewportSize } from '@/lib/hooks/useViewportSize';
 import { GRID_COLS } from '@/lib/constants/grid';
 import { resolveFitMode, containGeometry } from './fitMode';
 import type { CssGridDisplayProps } from './gridEditorTypes';
+// A widget on both dashboards moves; one on only one fades (schedule-* in
+// globals.css). Only under a scheduled change: any other transition, such as
+// a navigation, leaves the grid alone as before.
+const MORPH = { [SCHEDULE_TRANSITION]: 'schedule-morph', default: 'none' };
+const FADE_IN = { [SCHEDULE_TRANSITION]: 'schedule-fade-in', default: 'none' };
+const FADE_OUT = { [SCHEDULE_TRANSITION]: 'schedule-fade-out', default: 'none' };
+/** Each widget starts a little after the one before, up to this many steps. */
+const STAGGER_MS = 60;
+const STAGGER_STEPS = 8;
+
+/** A view-transition-name for a widget id (letters, digits, - and _ only). */
+function morphName(id: string): string {
+  return `widget-${id.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+}
+
 /** One figure eight, in seconds. The keyframes are prism-drift in globals.css. */
 const DRIFT_PERIOD_S = 96;
 
@@ -34,7 +54,7 @@ function driftPhase(): number {
  * wakes. So the cell is pinned where it is at that instant and eased home over
  * the same second the faded widgets take to come back.
  */
-function setCellDrift(el: HTMLElement, want: boolean) {
+export function setCellDrift(el: HTMLElement, want: boolean) {
   if ((el.dataset.drift !== undefined) === want) return;
   if (want) {
     el.style.transitionProperty = ''; // in case it was still easing home
@@ -60,6 +80,26 @@ function setCellDrift(el: HTMLElement, want: boolean) {
   el.addEventListener('transitionend', done);
 }
 
+/** How many widgets' contents fill in at first, and per step after (#1083). */
+export const STAGE_FIRST = 2;
+export const STAGE_STEP = 2;
+
+/**
+ * How many widgets may render their contents. Staged, the first STAGE_FIRST
+ * at once and STAGE_STEP more per task until all are in; the server and the
+ * first client render agree, so hydration matches. Not staged, all of them.
+ */
+function useStagedCount(total: number, staged: boolean): number {
+  const [n, setN] = useState(STAGE_FIRST);
+  useEffect(() => {
+    if (!staged || n >= total) return;
+    // A new task per step: a tap waiting between them is handled first.
+    const id = setTimeout(() => startTransition(() => setN((c) => c + STAGE_STEP)), 0);
+    return () => clearTimeout(id);
+  }, [staged, n, total]);
+  return staged ? n : total;
+}
+
 /**
  * Pure CSS Grid display for dashboard widgets. SSR-safe.
  * No drag/resize — used only for display mode and screensaver.
@@ -79,8 +119,14 @@ export function CssGridDisplay({
   containMode = false,
   screenFrame,
   fadedIds,
+  idleClear = false,
   drift = false,
+  morph = false,
+  hideEmptyByDefault = false,
+  onEmptyChange,
   className,
+  staged = false,
+  smallScreenDrop = false,
 }: CssGridDisplayProps) {
   const { containerRef, cellSize: widthCellSize, width, top, zoom, remeasure } = useSquareCells(cols, containerPadding, margin, fillHeight);
   const { width: viewportWidth, height: viewportHeight, visibleHeight } = useViewportSize();
@@ -90,10 +136,21 @@ export function CssGridDisplay({
   // math tracks the actual header height instead of a stale value.
   useEffect(() => { remeasure(); }, [headerOffset, bottomOffset, remeasure]);
 
+  // On a small screen, "Hide first" widgets drop out and the rest close up (#803).
+  const small = smallScreenDrop && isSmallScreen(viewportWidth, viewportHeight);
   const visibleWidgets = useMemo(
-    () => layout.filter(w => w.visible !== false),
-    [layout],
+    () => (small ? layoutForSmallScreen(layout) : layout).filter(w => w.visible !== false),
+    [layout, small],
   );
+
+  const { emptyIds, reporterFor } = useEmptyWidgets(onEmptyChange);
+
+  // Top-left first: the order a person reads the wall in.
+  const stageRank = useMemo(() => {
+    const order = [...visibleWidgets].sort((a, b) => a.y - b.y || a.x - b.x);
+    return new Map(order.map((w, i) => [w.i, i]));
+  }, [visibleWidgets]);
+  const shownCount = useStagedCount(visibleWidgets.length, staged);
 
   // A faded widget does not drift: there is nothing on screen to protect.
   const cells = useRef(new Map<string, HTMLDivElement>());
@@ -261,22 +318,45 @@ export function CssGridDisplay({
         ...(centerContain ? { display: 'flex', alignItems: 'center', justifyContent: 'center' } : {}),
       }}
     >
+      {morph && (
+        <style>{visibleWidgets.slice(0, STAGGER_STEPS).map((w, i) =>
+          `::view-transition-group(${morphName(w.i)}){animation-delay:${i * STAGGER_MS}ms}`,
+        ).join('') + '@media (prefers-reduced-motion:reduce){::view-transition-group(*){animation-delay:0s}}'}</style>
+      )}
       <div style={gridStyle}>
         {visibleWidgets.map(w => {
-          const widgetStyle = getWidgetStyle(w);
+          // On the idle screen a glass card that stays drops its glass.
+          const clear = idleClear && w.backgroundColor === 'glass' && !fadedIds?.has(w.i);
+          const widgetStyle = clear ? undefined : getWidgetStyle(w);
           const contentStyle = getWidgetContentStyle(w);
           const textClass = getTextColorClass(w);
+          const outlineClass = getWidgetOutlineClass(w);
           const hasCustomBg = !!w.backgroundColor;
           const faded = fadedIds?.has(w.i) ?? false;
+          // Nothing to show and set to hide: out of sight the same way as a
+          // faded widget, keeping its place (#738).
+          const hiddenEmpty = emptyIds.has(w.i) && hidesWhenEmpty(w, hideEmptyByDefault);
+          const gone = faded || hiddenEmpty;
+          // The clock and weather line up by where the tile sits (#988): in a
+          // screen corner they hug it, elsewhere they centre; Align overrides.
+          const align = w.i === 'clock' || w.i === 'weather'
+            ? tileAlign(w, cols, fitRows, (w.settings?.align as AlignSetting | undefined) ?? null)
+            : undefined;
+          const corner = align && align.x !== 'center' ? align.x : undefined;
 
-          return (
+          const cell = (
             <div
               key={w.i}
-              className={`widget-cell relative overflow-hidden ${textClass} transition-opacity duration-1000 motion-reduce:duration-200`}
+              className={`widget-cell relative overflow-hidden ${textClass} ${outlineClass} ${clear ? 'idle-clear' : ''} transition-opacity duration-1000 motion-reduce:duration-200`}
               ref={(el) => { if (el) cells.current.set(w.i, el); else cells.current.delete(w.i); }}
               data-widget={w.i}
+              data-corner={corner}
+              data-align-x={align?.x}
+              data-align-y={align?.y}
+              data-fill={w.backgroundColor === 'glass' ? 'glass' : w.backgroundColor === 'transparent' ? 'none' : undefined}
               data-faded={faded || undefined}
-              aria-hidden={faded || undefined}
+              data-hidden-empty={hiddenEmpty || undefined}
+              aria-hidden={gone || undefined}
               style={{
                 gridColumn: `${w.x + 1} / span ${w.w}`,
                 gridRow: `${w.y + 1} / span ${w.h}`,
@@ -284,15 +364,23 @@ export function CssGridDisplay({
                 // Faded, not removed: the cell keeps its place in the grid, so
                 // nothing around it reflows. A tap on it falls to the empty
                 // grid, which wakes the display without pressing anything.
-                ...(faded ? { opacity: 0, pointerEvents: 'none' as const } : {}),
+                ...(gone ? { opacity: 0, pointerEvents: 'none' as const } : {}),
               }}
             >
               <WidgetBgOverrideProvider value={{ hasCustomBg, textColor: w.textColor, textOpacity: w.textOpacity, gridLineOpacity: w.gridLineOpacity, cellBackgroundColor: w.cellBackgroundColor, cellBackgroundOpacity: w.cellBackgroundOpacity }}>
-                <div className="h-full w-full overflow-hidden" style={contentStyle}>
-                  {renderWidget(w)}
-                </div>
+                <WidgetEmptyReportContext.Provider value={reporterFor(w.i)}>
+                  <div className="h-full w-full overflow-hidden" style={contentStyle}>
+                    {(stageRank.get(w.i) ?? 0) < shownCount ? renderWidget(w) : null}
+                  </div>
+                </WidgetEmptyReportContext.Provider>
               </WidgetBgOverrideProvider>
             </div>
+          );
+          if (!morph) return cell;
+          return (
+            <ViewTransition key={w.i} name={morphName(w.i)} default="none" update={MORPH} share={MORPH} enter={FADE_IN} exit={FADE_OUT}>
+              {cell}
+            </ViewTransition>
           );
         })}
       </div>
